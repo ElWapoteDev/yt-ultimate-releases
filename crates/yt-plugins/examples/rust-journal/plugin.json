@@ -1,0 +1,139 @@
+{
+  "manifest_version": 2,
+  "api_version": 2,
+  "id": "dev.ytultimate.rust-journal",
+  "name": "Workflow Journal Rust",
+  "version": "1.0.0",
+  "description": "Journal de eventos con estado persistente, filtros, retención acotada y exportación JSONL.",
+  "module": "plugin.wasm",
+  "permissions": [
+    "state",
+    "events"
+  ],
+  "events": [
+    "app.started",
+    "app.stopping",
+    "download.queued",
+    "download.progress",
+    "download.media_ready",
+    "playlist.queued",
+    "playlist.progress",
+    "processing.stems.queued",
+    "processing.stems.progress",
+    "processing.stems.ready",
+    "processing.fingerprint.queued",
+    "processing.fingerprint.progress",
+    "processing.fingerprint.ready"
+  ],
+  "commands": [
+    {
+      "id": "summary",
+      "label": "Resumen"
+    },
+    {
+      "id": "recent",
+      "label": "Eventos recientes",
+      "arguments_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "export",
+      "label": "Exportar JSONL"
+    },
+    {
+      "id": "clear",
+      "label": "Borrar journal",
+      "arguments_schema": {
+        "type": "object",
+        "properties": {
+          "confirmation": {
+            "type": "string",
+            "enum": [
+              "BORRAR WORKFLOW JOURNAL"
+            ]
+          }
+        },
+        "required": [
+          "confirmation"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "max_entries": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000
+      },
+      "include_payload": {
+        "type": "boolean"
+      },
+      "progress_step": {
+        "type": "number",
+        "minimum": 0.5,
+        "maximum": 100
+      },
+      "events": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "app.started",
+            "app.stopping",
+            "download.queued",
+            "download.progress",
+            "download.media_ready",
+            "playlist.queued",
+            "playlist.progress",
+            "processing.stems.queued",
+            "processing.stems.progress",
+            "processing.stems.ready",
+            "processing.fingerprint.queued",
+            "processing.fingerprint.progress",
+            "processing.fingerprint.ready"
+          ]
+        },
+        "maxItems": 13
+      }
+    },
+    "required": [
+      "max_entries",
+      "include_payload",
+      "progress_step",
+      "events"
+    ],
+    "additionalProperties": false
+  },
+  "default_config": {
+    "max_entries": 100,
+    "include_payload": true,
+    "progress_step": 5,
+    "events": [
+      "app.started",
+      "app.stopping",
+      "download.queued",
+      "download.progress",
+      "download.media_ready",
+      "playlist.queued",
+      "playlist.progress",
+      "processing.stems.queued",
+      "processing.stems.progress",
+      "processing.stems.ready",
+      "processing.fingerprint.queued",
+      "processing.fingerprint.progress",
+      "processing.fingerprint.ready"
+    ]
+  }
+}

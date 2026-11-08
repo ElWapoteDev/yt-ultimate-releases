@@ -34,6 +34,20 @@ impl PartialEq for ApplicationProps {
 fn Application(props: ApplicationProps) -> Element {
     let s = use_app_state(props.services);
     use_context_provider(|| s.clone());
+    crate::updates::use_updates(s.clone());
+    let menus = crate::context_menu::use_menus();
+    let importing = crate::context_menu::use_document_controls(s.clone(), menus.clone());
+    let edit_state = s.clone();
+    let edit_menus = menus.clone();
+    let window = try_consume_context::<dioxus::desktop::DesktopContext>();
+    use_effect(|| {
+        let script = if cfg!(target_os = "windows") {
+            "document.documentElement.dataset.platform='win32';"
+        } else {
+            "document.documentElement.dataset.platform='darwin';"
+        };
+        document::eval(script);
+    });
     crate::native::use_native(s.clone());
     crate::local_media::use_local_media(s.services.core.clone());
     let startup = s.clone();
@@ -53,13 +67,13 @@ fn Application(props: ApplicationProps) -> Element {
     let mut key_state = s.clone();
     let page = *s.page.read();
     let notice = s.notice.read().clone();
-    let menu_track = s.menu_track.read().clone();
     let mut dismiss = s.clone();
     let drop_state = s.clone();
     rsx! {
         style { {include_str!("../assets/app.css")} }
         style { {include_str!("../assets/rust.css")} }
         div { class: "app-root", tabindex: "0",
+            oncontextmenu:move|event|crate::context_menu::show_edit(event,edit_state.clone(),edit_menus.clone()),
             ondragover: |event| event.prevent_default(),
             ondrop: move |event| {
                 event.prevent_default();
@@ -68,11 +82,13 @@ fn Application(props: ApplicationProps) -> Element {
             },
             onkeydown: move |event| {
                 let key = event.key();
-                if key == Key::Escape { key_state.menu_track.set(None); key_state.queue_open.set(false); key_state.options_open.set(false); key_state.video_track.set(None); }
+                if key == Key::Escape { menus.dismiss(); key_state.menu_track.set(None); key_state.chipmunk_track.set(None); key_state.information_track.set(None); key_state.queue_open.set(false); key_state.options_open.set(false); key_state.video_open.set(false); }
             },
+            crate::native::WindowControls {}
             div { class: "app-body",
                 Sidebar {}
                 main { class: "main-wrap",
+                    div {class:"content-drag",style:"pointer-events:auto",onmousedown:move|event|if event.trigger_button()==Some(dioxus::html::input_data::MouseButton::Primary){if let Some(window)=&window{window.drag();}}}
                     for current_page in [Page::Home, Page::Search, Page::Library, Page::Playlists, Page::Stems, Page::Downloads, Page::Settings] {
                         div { class: "page-host", hidden: page != current_page,
                             match current_page {
@@ -87,8 +103,16 @@ fn Application(props: ApplicationProps) -> Element {
                 }
             }
             PlayerBar {}
+            crate::context_menu::ContextMenuHost {}
+            crate::updates::UpdatePrompt {}
+            if *importing.read(){div{class:"import-drop-zone",role:"status",aria_live:"polite",div{class:"import-drop-zone__card",div{class:"import-drop-zone__icon",Icon{name:"folder-input",size:28}Icon{name:"file-music",size:17}}div{class:"import-drop-zone__title","Añadir a tu biblioteca"}div{class:"import-drop-zone__hint","Suelta canciones, vídeos, carpetas o playlists M3U"}}}}
             if s.video_track.read().is_some() { crate::player::VideoPanel {} }
-            if let Some(track) = menu_track { TrackMenu { track } }
+            if let Some(track) = s.chipmunk_track.read().clone() {
+                crate::processing_ui::ChipmunkDialog { track, onclose: { let mut state=s.clone(); move |_| state.chipmunk_track.set(None) } }
+            }
+            if let Some(track) = s.information_track.read().clone() {
+                crate::library_ui::InformationDialog { track, onclose: { let mut state = s.clone(); move |_| state.information_track.set(None) } }
+            }
             if let Some(message) = notice {
                 div { class: "rust-notice", role: "status", aria_live: "polite",
                     span { "{message}" }
@@ -104,9 +128,17 @@ fn Sidebar() -> Element {
     let s = use_context::<AppState>();
     let active = *s.page.read();
     let advanced = s.settings.read().show_advanced_tools;
+    let window = try_consume_context::<dioxus::desktop::DesktopContext>();
+    let menu_state = s.clone();
+    let mut menu_button = use_signal(|| None::<Rc<MountedData>>);
     rsx! {
-        aside { class: "sidebar sidebar--opaque",
-            div { class: "sidebar-drag" }
+        aside { class: if cfg!(target_os="macos"){"sidebar"}else{"sidebar sidebar--opaque"},
+            div { class: "sidebar-drag", onmousedown: move |event| { if event.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary) { if let Some(window) = &window { window.drag(); } } },
+                if cfg!(target_os="windows"){button{class:"sidebar-menu-button",r#type:"button",title:"Menú",aria_label:"Menú de la aplicación",onmounted:move|event|menu_button.set(Some(event.data())),onmousedown:|event|event.stop_propagation(),onclick:move|event|{
+                    event.stop_propagation();let button=menu_button.peek().clone();let state=menu_state.clone();let menus=try_consume_context::<crate::context_menu::Menus>();
+                    spawn(async move{if let(Some(button),Some(menus))=(button,menus){if let Ok(rect)=button.get_client_rect().await{menus.show(rect.min_x(),rect.max_y()+4.0,crate::native::application_items(&state));}}});
+                },Icon{name:"menu"}}}
+            }
             nav { class: "sidebar-scroll", aria_label: "Navegación principal",
                 NavButton { page: Page::Home, active }
                 NavButton { page: Page::Search, active }
@@ -133,7 +165,7 @@ fn NavButton(page: Page, active: Page) -> Element {
         .count();
     rsx! {
         button { class: if page == active { "sidebar-item active" } else { "sidebar-item" }, aria_current: if page == active { "page" } else { "false" }, onclick: move |_| s.page.set(page),
-            Icon { name: page.icon() }
+            Icon { name: page.icon(),class:"sidebar-icon",stroke_width:if page==active{2.1}else{1.8} }
             span { class: "sidebar-item__label", "{page.label()}" }
             if page == Page::Downloads && badge > 0 { span { class: "sidebar-badge", "{badge}" } }
         }
@@ -144,6 +176,9 @@ fn NavButton(page: Page, active: Page) -> Element {
 pub fn Thumb(
     #[props(default = String::new())] src: String,
     #[props(default = "sm")] size: &'static str,
+    #[props(default = false)] video: bool,
+    #[props(default = None)] icon_size: Option<u32>,
+    #[props(default)] children: Element,
 ) -> Element {
     let mut failed = use_signal(String::new);
     let failed_src = src.clone();
@@ -152,8 +187,9 @@ pub fn Thumb(
         || src.starts_with("/artwork/");
     rsx! { div { class: "thumb thumb--{size}",
         if allowed && *failed.read() != src {
-            img { src, alt: "", loading: "lazy", onerror: move |_| failed.set(failed_src.clone()) }
-        } else { div { class: "thumb-placeholder", Icon { name: "music", size: if size == "square" { 26 } else { 16 } } } }
+            img { src, alt: "", loading: "lazy", draggable: false, onerror: move |_| failed.set(failed_src.clone()) }
+        } else { div { class: "thumb-placeholder", Icon { name: if video { "video" } else { "music" }, size: icon_size.unwrap_or(if size == "square" { 26 } else { 14 }) } } }
+        {children}
     } }
 }
 
@@ -170,22 +206,28 @@ pub fn EmptyState(
     title: String,
     hint: String,
     #[props(default = "music")] icon: &'static str,
+    #[props(default = false)] compact: bool,
     #[props(default)] children: Element,
 ) -> Element {
-    rsx! { div { class: "empty-state", Icon { name: icon, size: 30 } span { class: "empty-state__title", "{title}" } span { class: "empty-state__hint", "{hint}" } {children} } }
+    rsx! { div { class: if compact { "empty-state empty-state--compact" } else { "empty-state" }, Icon { name: icon, class:"empty-state__icon",stroke_width:1.4,size: if compact { 24 } else { 30 } } if !title.is_empty(){span { class: "empty-state__title", "{title}" }}if !hint.is_empty(){span { class: "empty-state__hint", "{hint}" }} {children} } }
 }
 
 #[component]
-pub fn MediaCard(track: Track) -> Element {
-    let mut s = use_context::<AppState>();
+pub fn MediaCard(track: Track, #[props(default = false)] home: bool) -> Element {
+    let s = use_context::<AppState>();
     let active = s.current.read().as_ref().is_some_and(|t| t.id == track.id);
     let t = track.clone();
     let menu = track.clone();
     let play_state = s.clone();
-    rsx! { button { class: "media-card", title: "{track.title}",
-        onclick: move |_| { if active { play_state.toggle_play(); } else { play_state.play(t.clone()); } },
-        oncontextmenu: move |event| { event.prevent_default(); s.menu_track.set(Some(menu.clone())); },
-        div { class: "card-cover", Thumb { src: crate::app::artwork_src(&track), size: "square" }
+    let context_state = s.clone();
+    let drag_state = s.clone();
+    let drag_track = track.clone();
+    let mut dragging = use_signal(|| false);
+    rsx! { button { class: "media-card", title: "{track.title}",draggable: !track.missing && !track.path.as_os_str().is_empty(),onmousedown:move |_|dragging.set(false),ondragstart:move|event|{event.prevent_default();event.stop_propagation();dragging.set(true);crate::native::begin_media_drag(&drag_state,&drag_track);},
+        onclick: move |_| { if *dragging.peek(){return;}
+            if active { play_state.toggle_play(); } else { play_state.play(t.clone()); } },
+        oncontextmenu: move |event| crate::context_menu::show(event,if home{crate::context_menu::home_items(context_state.clone(),menu.clone())}else{crate::context_menu::track_items(context_state.clone(),menu.clone())}),
+        div { class: "card-cover", Thumb { src: crate::app::artwork_src(&track), size: "square", video: track.media_type == "video" }
             span { class: "card-play", Icon { name: if active && *s.playing.read() { "pause" } else { "play" } } }
             if active && *s.playing.read() { span { class: "card-playing", Equalizer {} } }
         }
@@ -201,90 +243,32 @@ pub fn Equalizer() -> Element {
 
 #[component]
 pub fn TrackRow(track: Track, #[props(default = 0)] index: usize) -> Element {
-    let mut s = use_context::<AppState>();
-    let active = s.current.read().as_ref().is_some_and(|t| t.id == track.id);
+    let s = use_context::<AppState>();
+    let active = s
+        .current
+        .read()
+        .as_ref()
+        .is_some_and(|current| current.id == track.id);
     let click = track.clone();
     let menu = track.clone();
     let more = track.clone();
+    let drag_track = track.clone();
     let row_state = s.clone();
-    rsx! { div { class: if active { "row row--active" } else { "row" },
-        oncontextmenu: move |event| { event.prevent_default(); s.menu_track.set(Some(menu.clone())); },
-        button { class: "rust-track-main", onclick: move |_| { if active { row_state.toggle_play(); } else { row_state.play(click.clone()); } },
-            span { class: "row__index", if active && *s.playing.read() { Equalizer {} } else { "{index + 1}" } }
-            Thumb { src: crate::app::artwork_src(&track) }
-            div { class: "row__meta", div { class: if active { "row__title row__title--active" } else { "row__title" }, "{track.title}" } div { class: "row__sub", "{track.artist}" } }
-            span { class: "row__detail", "{time_label(track.duration)}" }
-        }
-        button { class: "btn-icon-sm", title: "Más opciones", aria_label: "Más opciones de {track.title}", onclick: move |_| s.menu_track.set(Some(more.clone())), Icon { name: "more" } }
-    } }
-}
-
-#[component]
-fn TrackMenu(track: Track) -> Element {
-    let mut s = use_context::<AppState>();
-    let mut close = s.clone();
-    let play_state = s.clone();
-    let play_track = track.clone();
-    let mut queue_state = s.clone();
-    let queue_track = track.clone();
-    let favorite_state = s.clone();
-    let favorite_track = track.clone();
-    let remove_state = s.clone();
-    let remove_track = track.clone();
-    let playlists = s.playlists.read().clone();
-    rsx! { div { class: "modal-backdrop", onclick: move |_| close.menu_track.set(None),
-        div { class: "modal-panel rust-track-menu", role: "dialog", aria_label: "Opciones de canción", onclick: |e| e.stop_propagation(),
-            div { class: "modal-header", div { class: "modal-title", "{track.title}" }
-                button { class: "btn-icon-sm", title: "Cerrar", onclick: move |_| s.menu_track.set(None), Icon { name: "close" } }
-            }
-            button { class: "settings-row", onclick: move |_| { play_state.play(play_track.clone()); let mut menu = play_state.menu_track; menu.set(None); }, Icon { name: "play" } "Reproducir" }
-            button { class: "settings-row", onclick: move |_| { queue_state.queue.write().insert(0, queue_track.clone()); queue_state.persist_playback(); queue_state.menu_track.set(None); }, Icon { name: "playlist" } "Reproducir a continuación" }
-            button { class: "settings-row", onclick: move |_| {
-                match favorite_state.services.core.set_favorite(&favorite_track.id, !favorite_track.favorite) { Ok(_) => { favorite_state.refresh(); let mut menu = favorite_state.menu_track; menu.set(None); }, Err(e) => favorite_state.notify(e.to_string()) }
-            }, Icon { name: "heart" } if track.favorite { "Quitar de favoritos" } else { "Añadir a favoritos" } }
-            if !playlists.is_empty() {
-                div { class: "player-options__label", "Añadir a playlist" }
-                for playlist in playlists {
-                    PlaylistAction { playlist_id: playlist.id.clone(), name: playlist.name.clone(), track_id: track.id.clone() }
-                }
-            }
-            div { class: "player-options__label", "Exportar audio" }
-            for (label, format) in [("MP3", yt_audio::AudioFormat::Mp3(s.settings.read().audio_quality.parse().unwrap_or(320))), ("FLAC · 24 bits", yt_audio::AudioFormat::Flac), ("WAV · 24 bits", yt_audio::AudioFormat::Wav)] {
-                button { class: "settings-row", disabled: *s.busy.read(), onclick: {
-                    let mut state = s.clone(); let track = track.clone();
-                    move |_| { state.menu_track.set(None); state.export_audio(track.clone(), format); }
-                }, Icon { name: "download" } "{label}" }
-            }
-            if s.settings.read().show_advanced_tools {
-                div { class: "player-options__label", "Procesar audio" }
-                for (label, task) in [
-                    ("Versión ardilla", crate::processing::ProcessingTask::Variant(yt_audio::VariantOptions::chipmunk(7.0, 1.0, 3.0), "Ardilla")),
-                    ("Variación equilibrada", crate::processing::ProcessingTask::Variant(yt_audio::VariantOptions::variation(&track.id, false), "Variación")),
-                ] {
-                    button { class: "settings-row", onclick: { let mut state=s.clone(); let id=track.id.clone(); move |_| {state.menu_track.set(None); crate::processing::start_processing(state.clone(),id.clone(),task);} }, Icon { name:"scissors" } "{label}" }
-                }
-                if cfg!(feature="native-stems") {
-                    for (label, task) in [("Separar vocales e instrumental",crate::processing::ProcessingTask::Stems),("CALIDAD",crate::processing::ProcessingTask::Quality)] {
-                        button { class:"settings-row",onclick:{let mut state=s.clone();let id=track.id.clone();move |_|{state.menu_track.set(None);crate::processing::start_processing(state.clone(),id.clone(),task);}},Icon{name:"scissors"}"{label}" }
-                    }
-                }
-            }
-            div { class: "info-row", span { class: "info-row__label", "Duración" } span { class: "info-row__value", "{time_label(track.duration)}" } }
-            div { class: "info-row", span { class: "info-row__label", "Archivo" } span { class: "info-row__value", "{track.filename}" } }
-            div { class: "info-row", span { class: "info-row__label", "Tamaño" } span { class: "info-row__value", "{size_label(track.size_bytes)}" } }
-            button { class: "settings-row rust-danger", onclick: move |_| {
-                match remove_state.services.core.remove_track(&remove_track.id) { Ok(_) => { remove_state.refresh(); let mut menu = remove_state.menu_track; menu.set(None); remove_state.notify("Quitado de la biblioteca. El archivo original se conserva."); }, Err(e) => remove_state.notify(e.to_string()) }
-            }, Icon { name: "trash" } "Quitar de la biblioteca" }
-        }
-    } }
-}
-
-#[component]
-fn PlaylistAction(playlist_id: String, name: String, track_id: String) -> Element {
-    let mut s = use_context::<AppState>();
-    rsx! { button { class: "settings-row", onclick: move |_| {
-        match s.services.core.add_to_playlist(&playlist_id, &track_id) { Ok(_) => { s.refresh(); s.menu_track.set(None); s.notify("Añadido a la playlist"); }, Err(e) => s.notify(e.to_string()) }
-    }, Icon { name: "plus" } "{name}" } }
+    let context_state = s.clone();
+    let more_state = s.clone();
+    let drag_state = s.clone();
+    let mut dragging = use_signal(|| false);
+    rsx! {div{class:if active{"row row--active"}else{"row"},draggable:!track.missing&&!track.path.as_os_str().is_empty(),onmousedown:move |_|dragging.set(false),ondragstart:move|event|{event.prevent_default();event.stop_propagation();dragging.set(true);crate::native::begin_media_drag(&drag_state,&drag_track);},
+        onclick:move |_|{if *dragging.peek(){return;}
+            if active{row_state.toggle_play();}else{row_state.play(click.clone());}},
+        oncontextmenu:move|event|crate::context_menu::show_track(event,context_state.clone(),menu.clone()),
+        span{class:"row__index",if active && *s.playing.read(){Equalizer{}}else{"{index+1}"}}
+        Thumb{src:crate::app::artwork_src(&track),video:track.media_type=="video",icon_size:Some(14)}
+        div{class:"row__meta",div{class:if active{"row__title row__title--active"}else{"row__title"},"{track.title}"}div{class:"row__sub",if track.artist.is_empty(){"{track.filename}"}else{"{track.artist}"}}}
+        span{class:"row__detail",if track.duration>0.0{"{time_label(track.duration)}"}else{"--:--"}}
+        span{class:"row__detail",style:"width:56px;text-align:right","{size_label(track.size_bytes)}"}
+        button{class:"btn-icon-sm",title:"Más opciones",aria_label:"Más opciones de {track.title}",onclick:move|event|crate::context_menu::show_track(event,more_state.clone(),more.clone()),Icon{name:"more",size:15}}
+    }}
 }
 
 #[cfg(test)]
@@ -323,11 +307,11 @@ mod tests {
             "Sin playlists",
             "No hay descargas",
             "Ajustes",
-            "Sin reproducción",
+            "Nada en reproducción",
         ] {
             assert!(html.contains(label), "missing UI label: {label}");
         }
-        assert!(html.contains("sidebar--opaque"));
+        assert_eq!(html.contains("sidebar--opaque"), !cfg!(target_os = "macos"));
         assert!(html.contains("player-bar"));
         assert!(!html.contains("http://127.0.0.1:8000"));
     }

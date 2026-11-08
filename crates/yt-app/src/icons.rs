@@ -1,39 +1,146 @@
 use dioxus::prelude::*;
 
-/// Lucide-style, stroke-only icons rendered from Rust components.
+/// Original Lucide 0.554.0 geometry rendered by Rust components.
+/// ISC/Feather MIT notices are in packaging/licenses/LUCIDE-LICENSE.
 #[component]
-pub fn Icon(name: String, #[props(default = 16)] size: u32) -> Element {
-    let paths: &[&str] = match name.as_str() {
-        "home" => &["m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-6v-7H10v7H4a1 1 0 0 1-1-1Z"],
-        "search" => &["m21 21-4.4-4.4", "M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0"],
-        "music" => &["M9 18V5l12-2v13", "M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0", "M21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0"],
-        "playlist" => &["M4 6h16M4 11h10M4 16h7M18 16V9l4-1", "M18 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0"],
-        "download" => &["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"],
-        "settings" => &["m9 3-1 3-3 1-2 3 2 2-1 3 2 3 3-1 2 3h3l1-3 3-1 2-3-2-2 1-3-2-3-3 1-2-3Z", "M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0"],
-        "play" => &["m7 3 14 9-14 9Z"],
-        "pause" => &["M7 4v16M17 4v16"],
-        "next" => &["m4 4 12 8-12 8ZM20 4v16"],
-        "previous" => &["m20 4-12 8 12 8ZM4 4v16"],
-        "shuffle" => &["m18 14 4 4-4 4M18 2l4 4-4 4M2 18h3c5 0 7-12 12-12h5M2 6h3c2 0 3 2 4 4M15 16c1 2 2 2 7 2"],
-        "repeat" => &["m17 2 4 4-4 4M3 11V8a2 2 0 0 1 2-2h16M7 22l-4-4 4-4M21 13v3a2 2 0 0 1-2 2H3"],
-        "volume" => &["m11 5-6 4H2v6h3l6 4ZM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"],
-        "plus" => &["M12 5v14M5 12h14"],
-        "close" => &["m6 6 12 12M18 6 6 18"],
-        "more" => &["M4 12h.01M12 12h.01M20 12h.01"],
-        "heart" => &["M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"],
-        "check" => &["m5 12 4 4L19 6"],
-        "trash" => &["M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"],
-        "folder" => &["M3 7V4h6l2 3h10v13H3ZM3 11h18"],
-        "grid" => &["M3 3h7v7H3ZM14 3h7v7h-7ZM3 14h7v7H3ZM14 14h7v7h-7Z"],
-        "list" => &["M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"],
-        "arrow" => &["M5 12h14m-5-5 5 5-5 5"],
-        "video" => &["M3 5h13v14H3ZM16 10l6-4v12l-6-4"],
-        "scissors" => &["m8 8 13 13M14 10l7-7M8 16l3-3", "M9 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0", "M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0"],
-        _ => &["M12 3v10M12 18v1"],
+pub fn Icon(
+    name: String,
+    #[props(default = 16)] size: u32,
+    #[props(default="".to_owned())] class: String,
+    #[props(default = 1.8)] stroke_width: f64,
+) -> Element {
+    let geometry = match name.as_str() {
+        "activity" => {
+            r#"<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />"#
+        }
+        "hard-drive" => {
+            r#"<line x1="22" x2="2" y1="12" y2="12" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /><line x1="6" x2="6.01" y1="16" y2="16" /><line x1="10" x2="10.01" y1="16" y2="16" />"#
+        }
+        "wrench" => {
+            r#"<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" />"#
+        }
+        "gauge" => r#"<path d="m12 14 4-4" /><path d="M3.34 19a10 10 0 1 1 17.32 0" />"#,
+        "chevron-right" => r#"<path d="m9 18 6-6-6-6" />"#,
+        "loader" => r#"<path d="M21 12a9 9 0 1 1-6.219-8.56" />"#,
+        "check-circle" => r#"<circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" />"#,
+        "alert-circle" => {
+            r#"<circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" />"#
+        }
+        "download-cloud" => {
+            r#"<path d="M12 13v8l-4-4" /><path d="m12 21 4-4" /><path d="M4.393 15.269A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.436 8.284" />"#
+        }
+        "home" => {
+            r#"<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />"#
+        }
+        "menu" => r#"<path d="M4 5h16" /><path d="M4 12h16" /><path d="M4 19h16" />"#,
+        "search" => r#"<path d="m21 21-4.34-4.34" /><circle cx="11" cy="11" r="8" />"#,
+        "music" => {
+            r#"<path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />"#
+        }
+        "playlist" => {
+            r#"<path d="M16 5H3" /><path d="M11 12H3" /><path d="M11 19H3" /><path d="M21 16V5" /><circle cx="18" cy="16" r="3" />"#
+        }
+        "download" => {
+            r#"<path d="M12 15V3" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" />"#
+        }
+        "settings" => {
+            r#"<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /><circle cx="12" cy="12" r="3" />"#
+        }
+        "play" => {
+            r#"<path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" />"#
+        }
+        "pause" => {
+            r#"<rect x="14" y="3" width="5" height="18" rx="1" /><rect x="5" y="3" width="5" height="18" rx="1" />"#
+        }
+        "next" => {
+            r#"<path d="M21 4v16" /><path d="M6.029 4.285A2 2 0 0 0 3 6v12a2 2 0 0 0 3.029 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z" />"#
+        }
+        "previous" => {
+            r#"<path d="M17.971 4.285A2 2 0 0 1 21 6v12a2 2 0 0 1-3.029 1.715l-9.997-5.998a2 2 0 0 1-.003-3.432z" /><path d="M3 20V4" />"#
+        }
+        "shuffle" => {
+            r#"<path d="m18 14 4 4-4 4" /><path d="m18 2 4 4-4 4" /><path d="M2 18h1.973a4 4 0 0 0 3.3-1.7l5.454-8.6a4 4 0 0 1 3.3-1.7H22" /><path d="M2 6h1.972a4 4 0 0 1 3.6 2.2" /><path d="M22 18h-6.041a4 4 0 0 1-3.3-1.8l-.359-.45" />"#
+        }
+        "repeat" => {
+            r#"<path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" />"#
+        }
+        "volume" => {
+            r#"<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" /><path d="M16 9a5 5 0 0 1 0 6" /><path d="M19.364 18.364a9 9 0 0 0 0-12.728" />"#
+        }
+        "plus" => r#"<path d="M5 12h14" /><path d="M12 5v14" />"#,
+        "close" => r#"<path d="M18 6 6 18" /><path d="m6 6 12 12" />"#,
+        "more" => {
+            r#"<circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" />"#
+        }
+        "heart" => {
+            r#"<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />"#
+        }
+        "check" => r#"<path d="M20 6 9 17l-5-5" />"#,
+        "trash" => {
+            r#"<path d="M10 11v6" /><path d="M14 11v6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />"#
+        }
+        "radio" => {
+            r#"<path d="M16.247 7.761a6 6 0 0 1 0 8.478" /><path d="M19.075 4.933a10 10 0 0 1 0 14.134" /><path d="M4.925 19.067a10 10 0 0 1 0-14.134" /><path d="M7.753 16.239a6 6 0 0 1 0-8.478" /><circle cx="12" cy="12" r="2" />"#
+        }
+        "repeat-one" => {
+            r#"<path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /><path d="M11 10h1v4" />"#
+        }
+        "retry" => {
+            r#"<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" />"#
+        }
+        "pip" => {
+            r#"<path d="M2 10h6V4" /><path d="m2 4 6 6" /><path d="M21 10V7a2 2 0 0 0-2-2h-7" /><path d="M3 14v2a2 2 0 0 0 2 2h3" /><rect x="12" y="14" width="10" height="7" rx="1" />"#
+        }
+        "timer" => {
+            r#"<line x1="10" x2="14" y1="2" y2="2" /><line x1="12" x2="15" y1="14" y2="11" /><circle cx="12" cy="14" r="8" />"#
+        }
+        "volume-off" => {
+            r#"<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" /><line x1="22" x2="16" y1="9" y2="15" /><line x1="16" x2="22" y1="9" y2="15" />"#
+        }
+        "volume-low" => {
+            r#"<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" /><path d="M16 9a5 5 0 0 1 0 6" />"#
+        }
+        "loading" => r#"<path d="M21 12a9 9 0 1 1-6.219-8.56" />"#,
+        "list-plus" => {
+            r#"<path d="M16 5H3" /><path d="M11 12H3" /><path d="M16 19H3" /><path d="M18 9v6" /><path d="M21 12h-6" />"#
+        }
+        "folder-down" => {
+            r#"<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /><path d="M12 10v6" /><path d="m15 13-3 3-3-3" />"#
+        }
+        "external" => {
+            r#"<path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />"#
+        }
+        "info" => {
+            r#"<circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" />"#
+        }
+        "folder" => {
+            r#"<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />"#
+        }
+        "grid" => {
+            r#"<rect width="7" height="7" x="3" y="3" rx="1" /><rect width="7" height="7" x="14" y="3" rx="1" /><rect width="7" height="7" x="14" y="14" rx="1" /><rect width="7" height="7" x="3" y="14" rx="1" />"#
+        }
+        "list" => {
+            r#"<path d="M3 5h.01" /><path d="M3 12h.01" /><path d="M3 19h.01" /><path d="M8 5h13" /><path d="M8 12h13" /><path d="M8 19h13" />"#
+        }
+        "arrow" => r#"<path d="M5 12h14" /><path d="m12 5 7 7-7 7" />"#,
+        "video" => {
+            r#"<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" /><rect x="2" y="6" width="14" height="12" rx="2" />"#
+        }
+        "scissors" => {
+            r#"<circle cx="6" cy="6" r="3" /><path d="M8.12 8.12 12 12" /><path d="M20 4 8.12 15.88" /><circle cx="6" cy="18" r="3" /><path d="M14.8 14.8 20 20" />"#
+        }
+        "folder-input" => {
+            r#"<path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1" /><path d="M2 13h10" /><path d="m9 16 3-3-3-3" />"#
+        }
+        "file-music" => {
+            r#"<path d="M11.65 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v10.35" /><path d="M14 2v5a1 1 0 0 0 1 1h5" /><path d="M8 20v-7l3 1.474" /><circle cx="6" cy="20" r="2" />"#
+        }
+        "music-2" => r#"<circle cx="8" cy="18" r="4" /><path d="M12 18V2l7 4" />"#,
+        _ => r#"<path d="M12 3v10M12 18v1"/>"#,
     };
     rsx! {
-        svg { width: size, height: size, view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "1.8", stroke_linecap: "round", stroke_linejoin: "round", "aria-hidden": "true",
-            for path in paths { path { d: *path } }
+        svg { class: if name == "loading" { format!("spinner {class}") } else { class }, width: size, height: size, view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "{stroke_width}", stroke_linecap: "round", stroke_linejoin: "round", "aria-hidden": "true",dangerous_inner_html:geometry,
+
         }
     }
 }

@@ -1,6 +1,8 @@
-use crate::{AppCore, CoreError, Playlist, Result, Track, now};
+use crate::{
+    AppCore, CoreError, ImportFailure, Playlist, PlaylistExportReport, Result, Track, now,
+};
 use rusqlite::{Connection, OptionalExtension, params};
-use std::collections::HashSet;
+use std::{collections::HashSet, io::Write, path::Path};
 
 fn validate_name(name: &str) -> Result<&str> {
     let name = name.trim();
@@ -46,6 +48,102 @@ pub(crate) fn replace_membership(db: &Connection, id: &str, tracks: &[String]) -
 }
 
 impl AppCore {
+    /// Export available tracks in playlist order. Paths under the destination
+    /// directory are relative; others remain absolute so moving the playlist
+    /// alone cannot silently point at unrelated files. Never replaces a file.
+    pub fn export_playlist_m3u8(
+        &self,
+        id: &str,
+        destination: &Path,
+    ) -> Result<PlaylistExportReport> {
+        let name: String = self
+            .connection()?
+            .query_row("SELECT name FROM playlists WHERE id=?1", [id], |row| {
+                row.get(0)
+            })
+            .optional()?
+            .ok_or_else(|| CoreError::NotFound(id.into()))?;
+        let tracks = self.playlist_tracks(id)?;
+        let parent = destination
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(parent)?;
+        let parent = parent.canonicalize()?;
+        let filename = destination
+            .file_name()
+            .ok_or_else(|| CoreError::Invalid("Destino de playlist inválido".into()))?;
+        let destination = parent.join(filename);
+        let mut file = tempfile::NamedTempFile::new_in(&parent)?;
+        writeln!(file, "#EXTM3U\n#PLAYLIST:{}", playlist_line(&name))?;
+        let mut report = PlaylistExportReport {
+            path: destination.clone(),
+            exported_tracks: 0,
+            skipped: Vec::new(),
+        };
+        for track in tracks {
+            let result = (|| -> Result<String> {
+                if track.missing {
+                    return Err(CoreError::NotFound(
+                        "El archivo de la pista no está disponible".into(),
+                    ));
+                }
+                let path = track.path.canonicalize()?;
+                let path = if let Ok(relative) = path.strip_prefix(&parent) {
+                    format!(
+                        "./{}",
+                        relative.to_str().ok_or_else(|| CoreError::Invalid(
+                            "La ruta no se puede representar en UTF-8".into()
+                        ))?
+                    )
+                } else {
+                    path.to_str()
+                        .ok_or_else(|| {
+                            CoreError::Invalid("La ruta no se puede representar en UTF-8".into())
+                        })?
+                        .to_owned()
+                };
+                if path.contains(['\r', '\n', '\0']) {
+                    return Err(CoreError::Invalid(
+                        "La ruta contiene un salto de línea".into(),
+                    ));
+                }
+                #[cfg(target_os = "windows")]
+                let path = if let Some(unc) = path.strip_prefix("\\\\?\\UNC\\") {
+                    format!("\\\\{unc}")
+                } else {
+                    path.strip_prefix("\\\\?\\").unwrap_or(&path).to_owned()
+                }
+                .replace('\\', "/");
+                Ok(path)
+            })();
+            match result {
+                Ok(path) => {
+                    let label = if track.artist.is_empty() {
+                        track.title.clone()
+                    } else {
+                        format!("{} - {}", track.artist, track.title)
+                    };
+                    let duration = if track.duration > 0.0 && track.duration.is_finite() {
+                        track.duration.round() as i64
+                    } else {
+                        -1
+                    };
+                    writeln!(file, "#EXTINF:{duration},{}\n{path}", playlist_line(&label))?;
+                    report.exported_tracks += 1;
+                }
+                Err(error) => report.skipped.push(ImportFailure {
+                    path: track.path,
+                    message: error.to_string(),
+                }),
+            }
+        }
+        file.as_file().sync_all()?;
+        file.persist_noclobber(destination)
+            .map_err(|error| CoreError::Io(error.error))?;
+        Ok(report)
+    }
+
     pub fn playlists(&self) -> Result<Vec<Playlist>> {
         let db = self.connection()?;
         let mut query=db.prepare("SELECT p.id,p.name,p.description,COUNT(pt.track_id) AS track_count FROM playlists p
@@ -180,4 +278,11 @@ impl AppCore {
         tx.commit()?;
         Ok(())
     }
+}
+
+fn playlist_line(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
 }

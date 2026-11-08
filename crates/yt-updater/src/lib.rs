@@ -1,8 +1,10 @@
-//! Desktop update checks and verified installer downloads. Installation is a
-//! separate explicit call; there is no background or on-quit execution.
+//! Desktop update checks, verified downloads, and transactional installation.
+//! Installation requires a separate handoff authorized by the application.
 
+mod install;
 mod metadata;
 
+pub use install::{handle_update_arguments, InstallGuard};
 pub use metadata::{Edition, Platform, UpdateInfo};
 pub use tokio_util::sync::CancellationToken;
 
@@ -34,6 +36,8 @@ pub enum UpdateError {
     Canceled,
     #[error("No hay actualizador disponible para esta plataforma")]
     UnsupportedPlatform,
+    #[error("No se pudo instalar la actualización: {0}")]
+    Installation(String),
     #[error("Archivo de actualización: {0}")]
     Io(#[from] std::io::Error),
 }

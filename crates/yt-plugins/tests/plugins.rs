@@ -282,3 +282,300 @@ fn bundled_rust_guest_executes_and_install_never_overwrites_existing_files() {
     assert!(!host.install_example().unwrap());
     assert_eq!(fs::read(manifest).unwrap(), b"user edits");
 }
+
+fn host_proxy(request: Value) -> String {
+    let input = request.to_string();
+    let encoded = input
+        .bytes()
+        .map(|byte| format!("\\{byte:02x}"))
+        .collect::<String>();
+    format!(
+        r#"(module
+      (import "ytu" "host_call" (func $host (param i32 i32 i32 i32) (result i32)))
+      (memory (export "memory") 3)
+      (data (i32.const 0) "{encoded}")
+      (func (export "ytu_alloc") (param i32) (result i32) i32.const 4096)
+      (func (export "ytu_command") (param i32 i32) (result i64)
+        i64.const 281474976710656
+        i32.const 0 i32.const {length} i32.const 65536 i32.const 65536 call $host
+        i64.extend_i32_u i64.or))"#,
+        length = input.len()
+    )
+}
+
+fn declare_permissions(root: &Path, id: &str, permissions: &[&str]) {
+    let mut manifest = manifest(id);
+    manifest["permissions"] = json!(permissions);
+    fs::write(root.join(id).join("plugin.json"), manifest.to_string()).unwrap();
+}
+fn change_host_request(root: &Path, host: &PluginHost, id: &str, request: Value) -> Value {
+    fs::write(
+        root.join(id).join("plugin.wasm"),
+        wat::parse_str(host_proxy(request)).unwrap(),
+    )
+    .unwrap();
+    host.set_enabled(id, true).unwrap();
+    host.execute(id, "echo", json!({})).unwrap()
+}
+
+#[test]
+fn scoped_host_state_requires_permissions_and_isolates_plugins_after_restart() {
+    let temp = TempDir::new().unwrap();
+    let host = PluginHost::open(temp.path()).unwrap();
+    for id in ["dev.test.state-a", "dev.test.state-b"] {
+        install(
+            temp.path(),
+            id,
+            &host_proxy(json!({"operation":"state.get","key":"secret"})),
+        );
+        declare_permissions(temp.path(), id, &["state"]);
+        assert!(host.set_enabled(id, true).is_err());
+        assert!(host
+            .set_permissions(id, vec!["library.write".into()])
+            .is_err());
+        host.set_permissions(id, vec!["state".into()]).unwrap();
+        host.set_enabled(id, true).unwrap();
+    }
+    assert_eq!(
+        change_host_request(
+            temp.path(),
+            &host,
+            "dev.test.state-a",
+            json!({"operation":"state.set","key":"secret","value":{"persisted":42}})
+        )["ok"],
+        true
+    );
+    assert_eq!(
+        host.execute("dev.test.state-b", "echo", json!({})).unwrap()["value"],
+        Value::Null
+    );
+    let host = PluginHost::open(temp.path()).unwrap();
+    assert_eq!(
+        change_host_request(
+            temp.path(),
+            &host,
+            "dev.test.state-a",
+            json!({"operation":"state.get","key":"secret"})
+        )["value"],
+        json!({"persisted":42})
+    );
+    host.set_permissions("dev.test.state-a", vec![]).unwrap();
+    assert!(
+        !host
+            .plugins()
+            .unwrap()
+            .into_iter()
+            .find(|plugin| plugin.id == "dev.test.state-a")
+            .unwrap()
+            .enabled
+    );
+    assert!(host.set_enabled("dev.test.state-a", true).is_err());
+}
+
+#[test]
+fn mediated_library_access_has_no_paths_and_write_operations_require_grant() {
+    let temp = TempDir::new().unwrap();
+    let core = yt_core::AppCore::open(temp.path().join("profile")).unwrap();
+    let track = core
+        .import_bytes("original.wav", b"test media bytes preserved")
+        .unwrap();
+    let plugins = temp.path().join("Plugins");
+    let host = PluginHost::open(&plugins)
+        .unwrap()
+        .with_library(core.clone());
+    let id = "dev.test.library";
+    install(
+        &plugins,
+        id,
+        &host_proxy(json!({"operation":"library.list"})),
+    );
+    declare_permissions(&plugins, id, &["library.read"]);
+    host.set_permissions(id, vec!["library.read".into()])
+        .unwrap();
+    host.set_enabled(id, true).unwrap();
+    let result = host.execute(id, "echo", json!({})).unwrap();
+    assert_eq!(result["value"]["tracks"][0]["id"], track.id);
+    assert!(result["value"]["tracks"][0].get("path").is_none());
+    let request = json!({"operation":"library.set_favorite","id":track.id,"favorite":true});
+    let denied = change_host_request(&plugins, &host, id, request.clone());
+    assert_eq!(denied["ok"], false);
+    assert!(!core.track(&track.id).unwrap().favorite);
+    declare_permissions(&plugins, id, &["library.write"]);
+    host.set_permissions(id, vec!["library.write".into()])
+        .unwrap();
+    host.set_enabled(id, true).unwrap();
+    assert_eq!(host.execute(id, "echo", json!({})).unwrap()["ok"], true);
+    assert!(core.track(&track.id).unwrap().favorite);
+    assert_eq!(
+        fs::read(&track.path).unwrap(),
+        b"test media bytes preserved"
+    );
+    let denied = change_host_request(
+        &plugins,
+        &host,
+        id,
+        json!({"operation":"library.import","path":"/etc/passwd"}),
+    );
+    assert_eq!(denied["ok"], false);
+}
+
+#[test]
+fn compiled_rust_journal_receives_redacted_events_and_persists_exportable_state() {
+    use yt_plugins::{PluginEvent, JOURNAL_PLUGIN_ID};
+    let temp = TempDir::new().unwrap();
+    let host = PluginHost::open(temp.path()).unwrap();
+    assert!(host.install_journal_example().unwrap());
+    assert!(!host.install_journal_example().unwrap());
+    assert!(host
+        .dispatch_event(PluginEvent {
+            name: "app.started".into(),
+            payload: json!({})
+        })
+        .unwrap()
+        .is_empty());
+    host.set_permissions(JOURNAL_PLUGIN_ID, vec!["state".into(), "events".into()])
+        .unwrap();
+    host.set_enabled(JOURNAL_PLUGIN_ID, true).unwrap();
+    let deliveries=host.dispatch_event(PluginEvent{name:"download.media_ready".into(),payload:json!({"track_id":"track-1","Authorization":"sensitive","nested":{"cookie":"secret"}})}).unwrap();
+    assert_eq!(deliveries.len(), 1);
+    assert!(deliveries[0].error.is_none(), "{:?}", deliveries[0].error);
+    assert_eq!(deliveries[0].value.as_ref().unwrap()["recorded"], true);
+    for progress in [0, 1, 2, 5] {
+        host.dispatch_event(PluginEvent {
+            name: "download.progress".into(),
+            payload: json!({"job_id":"job-1","progress":progress}),
+        })
+        .unwrap();
+    }
+    let host = PluginHost::open(temp.path()).unwrap();
+    let summary = host
+        .execute(JOURNAL_PLUGIN_ID, "summary", json!({}))
+        .unwrap();
+    assert_eq!(summary["retained"], 3);
+    let exported = host
+        .execute(JOURNAL_PLUGIN_ID, "export", json!({}))
+        .unwrap();
+    let jsonl = exported["jsonl"].as_str().unwrap();
+    assert_eq!(jsonl.lines().count(), 3);
+    assert!(jsonl.contains("[redacted]"));
+    assert!(!jsonl.contains("sensitive") && !jsonl.contains("secret"));
+    assert!(host
+        .execute(JOURNAL_PLUGIN_ID, "clear", json!({"confirmation":"no"}))
+        .is_err());
+    host.execute(
+        JOURNAL_PLUGIN_ID,
+        "clear",
+        json!({"confirmation":"BORRAR WORKFLOW JOURNAL"}),
+    )
+    .unwrap();
+    assert_eq!(
+        host.execute(JOURNAL_PLUGIN_ID, "summary", json!({}))
+            .unwrap()["retained"],
+        0
+    );
+}
+
+#[test]
+fn scaffold_is_immediately_usable_disabled_and_never_overwrites() {
+    let temp = TempDir::new().unwrap();
+    let host = PluginHost::open(temp.path()).unwrap();
+    let id = "dev.test.created";
+    let path = host.scaffold(id, "Created plugin", "Description").unwrap();
+    assert!(path.join("guest/src/sdk.rs").is_file());
+    assert!(!host.plugins().unwrap()[0].enabled);
+    host.set_enabled(id, true).unwrap();
+    assert_eq!(
+        host.execute(id, "greet", json!({"name":"Developer"}))
+            .unwrap()["message"],
+        "Hola, Developer!"
+    );
+    let manifest = fs::read(path.join("plugin.json")).unwrap();
+    assert!(host.scaffold(id, "Overwrite", "No").is_err());
+    assert_eq!(fs::read(path.join("plugin.json")).unwrap(), manifest);
+    assert!(host.scaffold("../escape", "Escape", "").is_err());
+}
+
+#[test]
+fn host_calls_validate_output_memory_before_mutation_and_have_a_separate_budget() {
+    let temp = TempDir::new().unwrap();
+    let host = PluginHost::open(temp.path()).unwrap();
+    let id = "dev.test.host-bounds";
+    let set = json!({"operation":"state.set","key":"guarded","value":42});
+    let bad = host_proxy(set).replace(
+        "i32.const 65536 i32.const 65536 call $host",
+        "i32.const 2147483640 i32.const 65536 call $host",
+    );
+    install(temp.path(), id, &bad);
+    declare_permissions(temp.path(), id, &["state"]);
+    host.set_permissions(id, vec!["state".into()]).unwrap();
+    host.set_enabled(id, true).unwrap();
+    assert!(host.execute(id, "echo", json!({})).is_err());
+    let get = json!({"operation":"state.get","key":"guarded"});
+    assert_eq!(
+        change_host_request(temp.path(), &host, id, get.clone())["value"],
+        Value::Null
+    );
+    let request = get.to_string();
+    let encoded = request
+        .bytes()
+        .map(|byte| format!("\\{byte:02x}"))
+        .collect::<String>();
+    let looped = format!(
+        r#"(module
+      (import "ytu" "host_call" (func $host (param i32 i32 i32 i32) (result i32)))
+      (memory (export "memory") 3) (data (i32.const 0) "{encoded}")
+      (func (export "ytu_alloc") (param i32) (result i32) i32.const 4096)
+      (func (export "ytu_command") (param i32 i32) (result i64)
+        (loop $loop i32.const 0 i32.const {length} i32.const 65536 i32.const 65536 call $host drop br $loop) i64.const 0))"#,
+        length = request.len()
+    );
+    fs::write(
+        temp.path().join(id).join("plugin.wasm"),
+        wat::parse_str(looped).unwrap(),
+    )
+    .unwrap();
+    host.set_enabled(id, true).unwrap();
+    let error = host.execute(id, "echo", json!({})).unwrap_err().to_string();
+    assert!(error.contains("call budget"), "{error}");
+}
+
+#[test]
+fn event_delivery_reports_library_changes_and_isolates_a_failed_subscriber() {
+    use yt_plugins::PluginEvent;
+    let temp = TempDir::new().unwrap();
+    let core = yt_core::AppCore::open(temp.path().join("profile")).unwrap();
+    let track = core.import_bytes("source.wav", b"source bytes").unwrap();
+    let plugins = temp.path().join("Plugins");
+    let host = PluginHost::open(&plugins)
+        .unwrap()
+        .with_library(core.clone());
+    for (id,code,permissions) in [
+        ("dev.test.event-write",host_proxy(json!({"operation":"library.set_favorite","id":track.id,"favorite":true})),vec!["events","library.write"]),
+        ("dev.test.event-fail",ECHO.replace("local.get 0 i64.extend_i32_u i64.const 32 i64.shl\n    local.get 1 i64.extend_i32_u i64.or","unreachable"),vec!["events"]),
+    ] {
+        install(&plugins,id,&code);let mut manifest=manifest(id);manifest["permissions"]=json!(permissions);manifest["events"]=json!(["app.started"]);
+        fs::write(plugins.join(id).join("plugin.json"),manifest.to_string()).unwrap();host.set_permissions(id,permissions.into_iter().map(str::to_owned).collect()).unwrap();host.set_enabled(id,true).unwrap();
+    }
+    let deliveries = host
+        .dispatch_event(PluginEvent {
+            name: "app.started".into(),
+            payload: json!({}),
+        })
+        .unwrap();
+    assert_eq!(deliveries.len(), 2);
+    assert!(
+        deliveries
+            .iter()
+            .find(|delivery| delivery.plugin_id == "dev.test.event-write")
+            .unwrap()
+            .library_changed
+    );
+    let failed = deliveries
+        .iter()
+        .find(|delivery| delivery.plugin_id == "dev.test.event-fail")
+        .unwrap();
+    assert!(failed.error.is_some());
+    assert!(!failed.library_changed);
+    assert!(core.track(&track.id).unwrap().favorite);
+    assert_eq!(fs::read(track.path).unwrap(), b"source bytes");
+}

@@ -45,6 +45,26 @@ impl AppCore {
             .collect::<std::result::Result<_, _>>()?)
     }
 
+    /// All downloads referring to a resumable cache, including older retries
+    /// outside the bounded history shown in the interface.
+    pub fn jobs_for_download_cache(&self, cache_id: &str) -> Result<Vec<Job>> {
+        if cache_id.is_empty() {
+            return Ok(Vec::new());
+        }
+        let db = self.connection()?;
+        let mut query = db.prepare(
+            "SELECT * FROM jobs WHERE kind='download' AND (
+                CASE WHEN json_valid(payload_json) THEN
+                    json_extract(payload_json,'$.cache_id')=?1 OR
+                    (id=?1 AND COALESCE(json_extract(payload_json,'$.cache_id'),'')='')
+                ELSE id=?1 END
+            ) ORDER BY created_at DESC,id DESC",
+        )?;
+        Ok(query
+            .query_map([cache_id], job_from_row)?
+            .collect::<std::result::Result<_, _>>()?)
+    }
+
     pub fn update_job(
         &self,
         id: &str,
@@ -114,5 +134,42 @@ impl AppCore {
         Ok(self.connection()?.execute("UPDATE jobs SET status='interrupted',message='Interrumpido al cerrar la aplicación; puedes volver a intentarlo',
             error='Application stopped before the job finished',finished_at=?1,updated_at=?1
             WHERE status IN ('pending','queued','running','processing','cancelling')",[now()])?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn download_cache_lookup_keeps_older_retries_beyond_display_limit() {
+        let profile = tempfile::tempdir().unwrap();
+        let core = AppCore::open(profile.path()).unwrap();
+        let original = core.create_job("download", &serde_json::json!({})).unwrap();
+        let retry = core
+            .create_job("download", &serde_json::json!({"cache_id": original.id}))
+            .unwrap();
+        core.create_job("stems", &serde_json::json!({"cache_id": original.id}))
+            .unwrap();
+        core.create_job("download", &serde_json::json!({"cache_id": "different"}))
+            .unwrap();
+        for _ in 0..501 {
+            core.create_job("download", &serde_json::json!({})).unwrap();
+        }
+        assert_eq!(core.jobs().unwrap().len(), 500);
+        assert!(!core.jobs().unwrap().iter().any(|job| job.id == original.id));
+        let jobs = core.jobs_for_download_cache(&original.id).unwrap();
+        assert_eq!(jobs.len(), 2);
+        assert!(jobs.iter().any(|job| job.id == original.id));
+        assert!(jobs.iter().any(|job| job.id == retry.id));
+        core.connection()
+            .unwrap()
+            .execute(
+                "UPDATE jobs SET payload_json='invalid legacy JSON' WHERE id=?1",
+                [&original.id],
+            )
+            .unwrap();
+        assert_eq!(core.jobs_for_download_cache(&original.id).unwrap().len(), 2);
+        assert!(core.jobs_for_download_cache("").unwrap().is_empty());
     }
 }

@@ -1,11 +1,15 @@
 //! Resource-limited, explicitly enabled WebAssembly plugins. Guests receive
-//! JSON input and return JSON output; no ambient host capabilities are linked.
+//! JSON input and return JSON output; host capabilities require explicit grants.
 
+mod capabilities;
 mod manifest;
 mod runtime;
+mod scaffold;
 mod schema;
 
+pub use capabilities::{EventDelivery, PluginEvent};
 pub use manifest::{PluginCommand, PluginInfo, PluginManifest};
+pub const JOURNAL_PLUGIN_ID: &str = "dev.ytultimate.rust-journal";
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
@@ -25,6 +29,7 @@ pub struct PluginHost {
     root: Arc<PathBuf>,
     database: Arc<Mutex<Connection>>,
     execution: Arc<Mutex<()>>,
+    library: Option<yt_core::AppCore>,
 }
 
 struct Snapshot {
@@ -52,10 +57,12 @@ impl PluginHost {
         let database = Connection::open(path)?;
         database.busy_timeout(Duration::from_secs(5))?;
         database.execute_batch("PRAGMA journal_mode=WAL;CREATE TABLE IF NOT EXISTS plugin_state(id TEXT PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN(0,1)),fingerprint TEXT NOT NULL DEFAULT '',config_json TEXT NOT NULL DEFAULT '{}',last_error TEXT NOT NULL DEFAULT '');")?;
+        database.execute_batch("CREATE TABLE IF NOT EXISTS plugin_permissions(id TEXT PRIMARY KEY,permissions_json TEXT NOT NULL DEFAULT '[]');CREATE TABLE IF NOT EXISTS plugin_data(plugin_id TEXT NOT NULL,key TEXT NOT NULL,value_json TEXT NOT NULL,PRIMARY KEY(plugin_id,key));")?;
         Ok(Self {
             root: Arc::new(root),
             database: Arc::new(Mutex::new(database)),
             execution: Arc::new(Mutex::new(())),
+            library: None,
         })
     }
 
@@ -188,6 +195,9 @@ impl PluginHost {
                         commands: manifest.commands,
                         config_schema: manifest.config_schema,
                         config,
+                        permissions: manifest.permissions,
+                        granted_permissions: self.permissions(&id)?,
+                        events: manifest.events,
                     });
                 }
                 Err(error) => {
@@ -203,7 +213,7 @@ impl PluginHost {
                         || raw["entrypoint"]
                             .as_str()
                             .is_some_and(|entry| entry.contains(".py"));
-                    plugins.push(PluginInfo{id:id.clone(),name:raw["name"].as_str().unwrap_or(&id).into(),version:raw["version"].as_str().unwrap_or_default().into(),description:raw["description"].as_str().unwrap_or_default().into(),enabled:false,compatible:false,status:if legacy{"legacy"}else{"invalid"}.into(),error:Some(if legacy{"Plugin Python API v1 conservado; requiere una versión WebAssembly API v2".into()}else{error.to_string()}),commands:vec![],config_schema:json!({}),config:json!({})});
+                    plugins.push(PluginInfo{id:id.clone(),name:raw["name"].as_str().unwrap_or(&id).into(),version:raw["version"].as_str().unwrap_or_default().into(),description:raw["description"].as_str().unwrap_or_default().into(),enabled:false,compatible:false,status:if legacy{"legacy"}else{"invalid"}.into(),error:Some(if legacy{"Plugin Python API v1 conservado; requiere una versión WebAssembly API v2".into()}else{error.to_string()}),commands:vec![],config_schema:json!({}),config:json!({}),permissions:vec![],granted_permissions:vec![],events:vec![]});
                 }
             }
         }
@@ -220,6 +230,17 @@ impl PluginHost {
             return Ok(());
         }
         let snapshot = self.snapshot(id)?;
+        let granted = self.permissions(id)?;
+        if snapshot
+            .manifest
+            .permissions
+            .iter()
+            .any(|permission| !granted.contains(permission))
+        {
+            return Err(PluginError::Invalid(
+                "Grant the declared plugin permissions before enabling it".into(),
+            ));
+        }
         runtime::validate_module(&snapshot.bytes)?;
         let config = self
             .state(id)?
@@ -274,6 +295,7 @@ impl PluginHost {
         let result = runtime::execute(
             &snapshot.bytes,
             &json!({"command":command.id,"arguments":arguments,"config":saved.config}),
+            self.host_callback(id, &snapshot.manifest)?,
         );
         let error = result
             .as_ref()

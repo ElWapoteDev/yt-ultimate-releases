@@ -25,6 +25,183 @@ fn wav(path: &Path) {
 }
 
 #[test]
+fn embedded_artwork_is_extracted_without_modifying_source_and_is_reused() {
+    use lofty::{
+        config::WriteOptions,
+        picture::{Picture, PictureType},
+        tag::{Tag, TagExt, TagType},
+    };
+    let temp = TempDir::new().unwrap();
+    let source = temp.path().join("tagged.wav");
+    wav(&source);
+    let cover = include_bytes!("fixtures/cover.png");
+    let mut picture = Picture::from_reader(&mut cover.as_slice()).unwrap();
+    picture.set_pic_type(PictureType::CoverFront);
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.push_picture(picture);
+    tag.save_to_path(&source, WriteOptions::default()).unwrap();
+    let original = std::fs::read(&source).unwrap();
+    let core = AppCore::open(temp.path().join("profile")).unwrap();
+    let track = core.import_file(&source, ImportMode::Reference).unwrap();
+    let artwork = core.artwork_path(&track.id).unwrap().unwrap();
+    assert!(artwork.starts_with(core.profile_dir().join("Artwork")));
+    assert_eq!(std::fs::read(&artwork).unwrap(), cover);
+    assert_eq!(core.cache_artwork(cover).unwrap(), artwork);
+    assert_eq!(
+        core.media_metadata(&track.id).unwrap().artwork_path,
+        Some(artwork.clone())
+    );
+    assert_eq!(std::fs::read(source).unwrap(), original);
+    assert_eq!(
+        std::fs::read_dir(core.profile_dir().join("Artwork"))
+            .unwrap()
+            .count(),
+        1
+    );
+    assert!(core.cache_artwork(b"<svg onload='unsafe'/>").is_err());
+    assert!(core.cache_artwork(&cover[..25]).is_err());
+    assert_eq!(std::fs::read(artwork).unwrap(), cover);
+}
+
+#[cfg(unix)]
+#[test]
+fn artwork_cache_refuses_symlinks_outside_profile() {
+    let profile = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let core = AppCore::open(profile.path()).unwrap();
+    std::os::unix::fs::symlink(outside.path(), profile.path().join("Artwork")).unwrap();
+    assert!(
+        core.cache_artwork(include_bytes!("fixtures/cover.png"))
+            .is_err()
+    );
+    assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn cleanup_removes_only_stale_owned_partials_and_preserves_registered_files() {
+    use std::{
+        fs::FileTimes,
+        time::{Duration, SystemTime},
+    };
+    let temp = TempDir::new().unwrap();
+    let core = AppCore::open(temp.path()).unwrap();
+    let artwork = core
+        .cache_artwork(include_bytes!("fixtures/cover.png"))
+        .unwrap();
+    let update_dir = temp.path().join("Updates/6.0.0");
+    std::fs::create_dir_all(&update_dir).unwrap();
+    let old = SystemTime::now() - Duration::from_secs(48 * 60 * 60);
+    let make_old = |path: &Path| {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_times(FileTimes::new().set_modified(old))
+            .unwrap();
+    };
+    let stale_update = update_dir.join(".ytu-update-abandoned.part");
+    let stale_artwork = temp.path().join("Artwork/.ytu-artwork-abandoned");
+    let fresh = update_dir.join(".ytu-update-live.part");
+    let unknown = update_dir.join("keep.part");
+    let installer = update_dir.join("installer.exe");
+    let media = temp.path().join("Artwork/.ytu-artwork-original.wav");
+    for path in [&stale_update, &stale_artwork, &fresh, &unknown, &installer] {
+        std::fs::write(path, b"12345").unwrap();
+    }
+    wav(&media);
+    core.import_file(&media, ImportMode::Reference).unwrap();
+    for path in [
+        &stale_update,
+        &stale_artwork,
+        &unknown,
+        &installer,
+        &media,
+        &artwork,
+    ] {
+        make_old(path);
+    }
+    #[cfg(unix)]
+    let link = {
+        let link = update_dir.join(".ytu-update-link.part");
+        std::os::unix::fs::symlink(&unknown, &link).unwrap();
+        link
+    };
+    let job = core.create_job("download", &json!({})).unwrap();
+    assert!(core.clean_temporary_files().is_err());
+    assert!(stale_update.exists());
+    core.cancel_job(&job.id).unwrap();
+    let report = core.clean_temporary_files().unwrap();
+    assert_eq!(report.files_removed, 2);
+    assert_eq!(report.bytes_removed, 10);
+    assert!(report.errors.is_empty());
+    assert!(!stale_update.exists() && !stale_artwork.exists());
+    for path in [&fresh, &unknown, &installer, &media, &artwork] {
+        assert!(path.exists(), "{}", path.display());
+    }
+    #[cfg(unix)]
+    assert!(
+        std::fs::symlink_metadata(link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(core.clean_temporary_files().unwrap().files_removed, 0);
+}
+
+#[test]
+fn exported_playlist_roundtrips_order_unicode_relative_and_absolute_paths() {
+    let temp = TempDir::new().unwrap();
+    let library = temp.path().join("library");
+    std::fs::create_dir(&library).unwrap();
+    let relative = library.join("#Canción con espacios.wav");
+    let external = temp.path().join("External song.wav");
+    wav(&relative);
+    wav(&external);
+    let core = AppCore::open_with_library(temp.path().join("profile"), &library).unwrap();
+    let first = core.import_file(&relative, ImportMode::Reference).unwrap();
+    let second = core.import_file(&external, ImportMode::Reference).unwrap();
+    let missing = core
+        .import_bytes("missing.wav", b"unavailable media")
+        .unwrap();
+    let playlist = core.create_playlist("Música").unwrap();
+    for track in [&second, &first, &missing] {
+        core.add_to_playlist(&playlist.id, &track.id).unwrap();
+    }
+    std::fs::remove_file(&missing.path).unwrap();
+    let destination = library.join("Exportada.m3u8");
+    let report = core
+        .export_playlist_m3u8(&playlist.id, &destination)
+        .unwrap();
+    assert_eq!(report.exported_tracks, 2);
+    assert_eq!(report.skipped.len(), 1);
+    let content = std::fs::read_to_string(&destination).unwrap();
+    assert!(content.starts_with("#EXTM3U\n#PLAYLIST:Música\n"));
+    assert!(content.contains("./#Canción con espacios.wav"));
+    assert!(content.contains("External song.wav"));
+    assert!(
+        core.export_playlist_m3u8(&playlist.id, &destination)
+            .is_err()
+    );
+    assert_eq!(std::fs::read_to_string(&destination).unwrap(), content);
+    let imported = core
+        .import_paths(&[destination], ImportMode::Reference)
+        .unwrap();
+    assert!(imported.errors.is_empty());
+    let exported = imported
+        .playlists
+        .iter()
+        .find(|p| p.name == "Exportada")
+        .unwrap();
+    let ids = core
+        .playlist_tracks(&exported.id)
+        .unwrap()
+        .into_iter()
+        .map(|t| t.id)
+        .collect::<Vec<_>>();
+    assert_eq!(ids, vec![second.id, first.id]);
+}
+
+#[test]
 fn imported_media_is_probed_deduplicated_and_never_deleted() {
     let temp = TempDir::new().unwrap();
     let source = temp.path().join("Canción.wav");
@@ -388,6 +565,45 @@ fn playback_and_history_persist_without_stale_memberships() {
 }
 
 #[test]
+fn remote_playback_survives_restart_without_becoming_library_media() {
+    let temp = TempDir::new().unwrap();
+    let core = AppCore::open(temp.path()).unwrap();
+    let mut legacy = serde_json::to_value(PlaybackState::default()).unwrap();
+    legacy.as_object_mut().unwrap().remove("remote_tracks");
+    core.set_setting("rust.playback", &legacy).unwrap();
+    assert!(core.load_playback().unwrap().remote_tracks.is_empty());
+    let track = yt_core::Track {
+        id: "youtube:abcdefghijk".into(),
+        title: "Remote song".into(),
+        artist: "Channel".into(),
+        album: String::new(),
+        filename: String::new(),
+        path: Default::default(),
+        media_type: "audio".into(),
+        extension: String::new(),
+        duration: 42.0,
+        size_bytes: 0,
+        artwork_url: String::new(),
+        favorite: false,
+        missing: false,
+        created_at: 0.0,
+        source_url: "https://www.youtube.com/watch?v=abcdefghijk".into(),
+    };
+    let state = PlaybackState {
+        queue: vec![track.id.clone()],
+        remote_tracks: vec![track],
+        current_index: Some(0),
+        position_seconds: 2.5,
+        ..Default::default()
+    };
+    core.save_playback(&state).unwrap();
+    drop(core);
+    let reopened = AppCore::open(temp.path()).unwrap();
+    assert_eq!(reopened.load_playback().unwrap(), state);
+    assert!(reopened.library("").unwrap().is_empty());
+}
+
+#[test]
 fn legacy_v4_profile_is_backed_up_and_preserves_ids_plugins_and_order() {
     let temp = TempDir::new().unwrap();
     let library = temp.path().join("legacy-library");
@@ -570,5 +786,68 @@ fn unsupported_existing_schemas_are_rejected_without_relabeling_or_modification(
         db.query_row("SELECT value FROM unknown", [], |r| r.get::<_, String>(0))
             .unwrap(),
         "retained"
+    );
+}
+
+#[test]
+fn track_metadata_merges_preserve_legacy_values_and_survive_restart() {
+    let temp = TempDir::new().unwrap();
+    let core = AppCore::open(temp.path()).unwrap();
+    let track = core.import_bytes("profile.wav", b"fixture").unwrap();
+    core.merge_track_metadata(
+        &track.id,
+        &serde_json::json!({"legacy":{"nested":true},"fingerprint_profile":{"intensity":"strong"}}),
+    )
+    .unwrap();
+    core.merge_track_metadata(
+        &track.id,
+        &serde_json::json!({"fingerprint_verification":{"status":"changed"}}),
+    )
+    .unwrap();
+    assert!(
+        core.merge_track_metadata(&track.id, &serde_json::json!([]))
+            .is_err()
+    );
+    drop(core);
+    let core = AppCore::open(temp.path()).unwrap();
+    let metadata = core.track_metadata(&track.id).unwrap();
+    assert_eq!(metadata["legacy"]["nested"], true);
+    assert_eq!(metadata["fingerprint_profile"]["intensity"], "strong");
+    assert_eq!(metadata["fingerprint_verification"]["status"], "changed");
+    assert_eq!(std::fs::read(track.path).unwrap(), b"fixture");
+}
+
+#[test]
+fn confirmed_file_deletion_removes_memberships_but_record_removal_preserves_bytes() {
+    let temp = TempDir::new().unwrap();
+    let core = AppCore::open(temp.path()).unwrap();
+    let first = core.import_bytes("delete.wav", b"delete fixture").unwrap();
+    let second = core.import_bytes("keep.wav", b"keep fixture").unwrap();
+    let playlist = core.create_playlist("Deletion test").unwrap();
+    core.add_to_playlist(&playlist.id, &first.id).unwrap();
+    core.add_to_playlist(&playlist.id, &second.id).unwrap();
+    core.delete_track_file(&first.id).unwrap();
+    assert!(!first.path.exists());
+    assert!(core.track(&first.id).is_err());
+    assert_eq!(core.playlist_tracks(&playlist.id).unwrap()[0].id, second.id);
+    core.remove_track(&second.id).unwrap();
+    assert_eq!(std::fs::read(second.path).unwrap(), b"keep fixture");
+}
+
+#[test]
+fn file_deletion_refuses_a_replaced_directory_and_keeps_playlist_membership() {
+    let temp = TempDir::new().unwrap();
+    let core = AppCore::open(temp.path()).unwrap();
+    let track = core.import_bytes("replaced.wav", b"fixture").unwrap();
+    let playlist = core.create_playlist("Keep this entry").unwrap();
+    core.add_to_playlist(&playlist.id, &track.id).unwrap();
+    std::fs::remove_file(&track.path).unwrap();
+    std::fs::create_dir(&track.path).unwrap();
+    std::fs::write(track.path.join("untouched.txt"), b"untouched").unwrap();
+    assert!(core.delete_track_file(&track.id).is_err());
+    assert_eq!(core.playlist_tracks(&playlist.id).unwrap()[0].id, track.id);
+    assert_eq!(
+        std::fs::read(track.path.join("untouched.txt")).unwrap(),
+        b"untouched"
     );
 }

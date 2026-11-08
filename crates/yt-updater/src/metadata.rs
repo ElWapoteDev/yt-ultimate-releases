@@ -1,9 +1,9 @@
 use crate::{Result, UpdateError, MAX_INSTALLER_BYTES};
 use semver::Version;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Platform {
     MacArm64,
     MacX64,
@@ -11,7 +11,7 @@ pub enum Platform {
 }
 
 /// Editions have different OS requirements and never silently replace one another.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Edition {
     #[default]
     Base,
@@ -53,7 +53,7 @@ impl Platform {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateInfo {
     pub version: String,
     pub name: String,

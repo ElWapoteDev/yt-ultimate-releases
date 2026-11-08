@@ -4,7 +4,10 @@ use crate::{
 use rodio::Source;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::{io::Write, path::Path};
+use std::{
+    io::{Read, Write},
+    path::Path,
+};
 use yt_media::CancellationToken;
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -88,13 +91,21 @@ pub fn create_variant(
     let normalized = work.path().join("normalized.wav");
     let encoded = work.path().join("variant.flac");
     let mut source = yt_media::decode_file(input).map_err(codec)?;
-    let rate = source.sample_rate();
+    let source_rate = source.sample_rate();
     let channels = source.channels();
-    if !(1..=2).contains(&channels) || !(8000..=192000).contains(&rate) {
+    if !(1..=2).contains(&channels) || !(8000..=384000).contains(&source_rate) {
         return Err(AudioError::Codec(
-            "La variación requiere audio mono o estéreo entre 8 y 192 kHz".into(),
+            "La variación requiere audio mono o estéreo entre 8 y 384 kHz".into(),
         ));
     }
+    // SoundTouch throws a C++ exception above 192 kHz. Use the same bounded
+    // FFT converter as the codecs, then restore the source rate on export.
+    if source_rate > 192000 {
+        let prepared = work.path().join("high-rate-input.wav");
+        crate::codecs::resample_wave(input, &prepared, source_rate / 2, cancel)?;
+        source = yt_media::decode_file(&prepared).map_err(codec)?;
+    }
+    let rate = source.sample_rate();
     let total = source
         .total_duration()
         .map(|d| d.as_secs_f64() * rate as f64 * channels as f64);
@@ -187,6 +198,13 @@ pub fn create_variant(
             .map_err(codec)?;
     }
     wave.finalize().map_err(codec)?;
+    let normalized = if source_rate != rate {
+        let restored = work.path().join("restored-rate.wav");
+        crate::codecs::resample_wave(&normalized, &restored, source_rate, cancel)?;
+        restored
+    } else {
+        normalized
+    };
     convert(&normalized, &encoded, AudioFormat::Flac, cancel, |p| {
         progress(0.65 + p * 0.25)
     })?;
@@ -198,7 +216,16 @@ pub fn create_variant(
     }
     check(cancel)?;
     let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    std::io::copy(&mut std::fs::File::open(encoded)?, &mut file)?;
+    let mut reader = std::fs::File::open(encoded)?;
+    let mut buffer = [0u8; 128 * 1024];
+    loop {
+        check(cancel)?;
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        file.write_all(&buffer[..count])?;
+    }
     file.flush()?;
     file.as_file().sync_all()?;
     check(cancel)?;
@@ -269,6 +296,40 @@ impl Biquad {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fingerprint_variant_accepts_legacy_384_khz_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("source.wav");
+        let output = dir.path().join("variant.flac");
+        let mut wave = hound::WavWriter::create(
+            &input,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 384000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for i in 0..384000 / 4 {
+            wave.write_sample(
+                (6000.0 * (std::f64::consts::TAU * 440.0 * i as f64 / 384000.0).sin()) as i16,
+            )
+            .unwrap();
+        }
+        wave.finalize().unwrap();
+        create_variant(
+            &input,
+            &output,
+            VariantOptions::variation("legacy-rate", true),
+            &CancellationToken::new(),
+            |_| {},
+        )
+        .unwrap();
+        let decoded = yt_media::decode_file(&output).unwrap();
+        assert_eq!(decoded.sample_rate(), 384000);
+        assert!(decoded.count() > 80000);
+    }
     #[test]
     fn chipmunk_changes_pitch_without_changing_requested_duration() {
         let dir = tempfile::tempdir().unwrap();

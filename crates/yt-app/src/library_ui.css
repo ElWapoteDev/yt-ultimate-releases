@@ -1,0 +1,7 @@
+.library-info-heading { display:flex; gap:14px; min-width:0; flex:1; }
+.library-info-meta { min-width:0; flex:1; }
+.library-info-artist { font-size:13px; color:var(--text-secondary); margin-top:2px; }
+.library-information .info-row__value { overflow-wrap:anywhere; }
+.library-fingerprint-actions { display:flex; align-items:center; gap:8px; margin-top:16px; }
+.library-fingerprint-hash { font-family:var(--font-mono,monospace); font-size:11px; user-select:text; }
+.library-fingerprint-note { margin-top:12px; font-size:12px; line-height:1.5; color:var(--text-secondary); }

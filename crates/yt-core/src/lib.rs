@@ -1,12 +1,15 @@
 //! In-process application state for the Windows and macOS Rust frontends.
 //! No Python runtime, HTTP service or child process is required.
 
+mod artwork;
+mod cleanup;
 mod jobs;
 mod library;
 mod models;
 mod playlists;
 mod settings;
 
+pub use artwork::{MAX_ARTWORK_BYTES, validate_artwork};
 pub use models::*;
 pub use settings::Settings;
 

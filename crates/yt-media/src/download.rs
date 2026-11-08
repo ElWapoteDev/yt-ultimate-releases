@@ -1,10 +1,7 @@
 use crate::{network_error, CancellationToken, MediaError, Result};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::{
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -29,17 +26,16 @@ pub struct DownloadReceipt {
 
 #[derive(Clone)]
 pub struct Downloader {
-    client: reqwest::Client,
+    pub(crate) client: reqwest::Client,
 }
 
 impl Downloader {
     pub fn new() -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(20))
-            .read_timeout(Duration::from_secs(40))
-            .redirect(reqwest::redirect::Policy::limited(8))
-            .build()
-            .map_err(network_error)?;
+        Self::with_options(crate::ConnectionOptions::default())
+    }
+
+    pub fn with_options(options: crate::ConnectionOptions) -> Result<Self> {
+        let client = options.client(false)?;
         Ok(Self { client })
     }
 
@@ -248,7 +244,7 @@ impl Downloader {
     }
 }
 
-fn parse_content_range(value: &str) -> Result<(u64, u64, u64)> {
+pub(crate) fn parse_content_range(value: &str) -> Result<(u64, u64, u64)> {
     let invalid = || MediaError::IncompleteDownload;
     let (range, total) = value
         .strip_prefix("bytes ")

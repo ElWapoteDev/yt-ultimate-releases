@@ -1,0 +1,1 @@
+Vendored from fdk-aac-sys 0.5.0 (crates.io). The only build change enables cc::Build::cpp(true) and lets cc choose the C++ runtime from Cargo TARGET rather than the build host. The codec sources are unchanged. See aac/NOTICE for the Fraunhofer FDK AAC license; the Rust wrapper manifest MIT declaration does not replace it.

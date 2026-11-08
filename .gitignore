@@ -68,6 +68,12 @@ pnpm-debug.log*
 *.zip
 
 # Rust workspace and native packages
-/target/
+target/
 /dist/
+
+# Local model weights and assistant-specific configuration
+backend/models/
+.claude/
+.codex/
+.agents/
 

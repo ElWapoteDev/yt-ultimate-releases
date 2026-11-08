@@ -1,0 +1,29 @@
+.playlist-toolbar { padding-bottom:10px; }
+.playlist-create { display:flex; gap:8px; max-width:420px; padding-bottom:10px; }
+.playlist-create .input-search-wrap { flex:1; }
+.playlist-name-input { padding-left:12px; }
+.playlist-rail-row { padding-left:8px; }
+.playlist-rail-select { flex:1; display:flex; align-items:center; gap:10px; min-width:0; text-align:left; cursor:pointer; }
+.playlist-rail-row:focus-within .row__actions { opacity:1; }
+.playlist-hero-cover { width:148px; height:148px; flex-shrink:0; }
+.playlist-options { position:relative; }
+.playlist-options > summary { list-style:none; cursor:pointer; }
+.playlist-options > summary::-webkit-details-marker { display:none; }
+.playlist-options-menu { position:absolute; z-index:20; right:0; top:36px; min-width:180px; padding:4px; border:0.5px solid var(--border-default); border-radius:10px; background:var(--surface-elevated); box-shadow:0 12px 32px #0005; }
+.playlist-options-menu .settings-row { justify-content:flex-start; gap:8px; min-height:34px; }
+.playlist-delete { color:var(--system-red); }
+.playlist-track-wrap { display:flex; align-items:center; gap:0; }
+.playlist-track-main { flex:1; min-width:0; }
+.playlist-row-actions { display:flex; opacity:0; }
+.playlist-drag-handle { opacity:0; cursor:grab; }
+.playlist-track-wrap:hover .playlist-row-actions,.playlist-track-wrap:focus-within .playlist-row-actions,.playlist-track-wrap:hover .playlist-drag-handle,.playlist-track-wrap:focus-within .playlist-drag-handle { opacity:1; }
+.playlist-name-dialog { max-width:420px; }
+.playlist-name-dialog .modal-actions { margin-top:18px; }
+.playlist-delete-hint { color:var(--text-secondary); font-size:13px; line-height:1.5; }
+.playlist-delete-button { background:var(--system-red); }
+.playlist-track-wrap { position:relative; gap:10px; }
+.playlist-track-play { display:flex; align-items:center; gap:10px; min-width:0; flex:1; text-align:left; cursor:pointer; }
+.playlist-track-wrap .playlist-drag-handle { position:absolute; left:-17px; width:16px; }
+.playlist-order-actions { position:absolute; right:38px; display:flex; opacity:0; background:var(--surface-elevated); border-radius:6px; }
+.playlist-track-wrap:hover .playlist-order-actions,.playlist-track-wrap:focus-within .playlist-order-actions { opacity:1; }
+.playlist-track-wrap:focus-within .row__actions { opacity:1; }

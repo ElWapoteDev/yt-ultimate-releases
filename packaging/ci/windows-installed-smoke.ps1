@@ -103,6 +103,8 @@ try {
         if ($legacySetup.ExitCode -ne 0) { throw "Legacy installation failed: $($legacySetup.ExitCode)" }
         if (-not (Test-Path -LiteralPath (Join-Path $installDirectory 'YT Ultimate.exe'))) { throw 'Legacy executable is missing' }
         if ((Get-ItemPropertyValue -LiteralPath $legacyRegistryKey -Name DisplayVersion) -ne '4.4.1') { throw 'Unexpected legacy version' }
+        $result.legacy_display_name = Get-ItemPropertyValue -LiteralPath $legacyRegistryKey -Name DisplayName
+        $result.legacy_installation_directory = Get-ItemPropertyValue -LiteralPath 'HKCU:\Software\d5cdec52-ef34-5136-a778-fe870ed73415' -Name InstallLocation
         $result.legacy_installation_completed = $true
         Invoke-LegacyFixture 'seed'
     }
@@ -111,6 +113,9 @@ try {
     $setup = Start-Process -FilePath $Installer -ArgumentList $setupArguments -PassThru
     if (-not $setup.WaitForExit(300000)) { $setup.Kill($true); throw 'Silent installation exceeded five minutes' }
     if ($setup.ExitCode -ne 0) { throw "Silent installation failed: $($setup.ExitCode)" }
+    if (Test-Path -LiteralPath $registryKey) {
+        $result.registered_installation_directory = Get-ItemPropertyValue -LiteralPath $registryKey -Name InstallLocation
+    }
     $executable = Join-Path $installDirectory 'yt-ultimate.exe'
     $model = Join-Path $installDirectory 'models/bs-roformer-v1.pt'
     if (-not (Test-Path -LiteralPath $executable)) { throw 'Installed executable is missing' }

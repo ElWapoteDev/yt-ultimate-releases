@@ -49,6 +49,57 @@ pub struct Playlist {
     pub track_count: u64,
 }
 
+/// Explicit library metadata layered over the complete source-file tags.
+/// `None` keeps the source value; `Some("")` deliberately clears that field.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MediaMetadata {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub source_url: Option<String>,
+    pub artwork_path: Option<PathBuf>,
+    pub preserve_source_tags: bool,
+}
+
+impl Default for MediaMetadata {
+    fn default() -> Self {
+        Self {
+            title: None,
+            artist: None,
+            album: None,
+            source_url: None,
+            artwork_path: None,
+            preserve_source_tags: true,
+        }
+    }
+}
+
+impl From<&Track> for MediaMetadata {
+    fn from(track: &Track) -> Self {
+        Self {
+            title: Some(track.title.clone()),
+            artist: Some(track.artist.clone()),
+            album: Some(track.album.clone()),
+            source_url: (!track.source_url.is_empty()).then(|| track.source_url.clone()),
+            ..Self::default()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaylistExportReport {
+    pub path: PathBuf,
+    pub exported_tracks: usize,
+    pub skipped: Vec<ImportFailure>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CleanupReport {
+    pub files_removed: u64,
+    pub bytes_removed: u64,
+    pub errors: Vec<ImportFailure>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum JobStatus {
@@ -105,6 +156,10 @@ pub struct Job {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PlaybackState {
     pub queue: Vec<String>,
+    /// Unresolved remote queue entries. Store canonical source URLs only;
+    /// signed transport URLs and credentials do not belong in playback state.
+    #[serde(default)]
+    pub remote_tracks: Vec<Track>,
     pub current_index: Option<usize>,
     pub position_seconds: f64,
     pub volume: f64,
@@ -117,6 +172,7 @@ impl Default for PlaybackState {
     fn default() -> Self {
         Self {
             queue: Vec::new(),
+            remote_tracks: Vec::new(),
             current_index: None,
             position_seconds: 0.0,
             volume: 1.0,

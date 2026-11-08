@@ -7,9 +7,18 @@ license.workspace = true
 
 [dependencies]
 yt-media = { path = "../yt-media" }
+yt-core = { path = "../yt-core" }
+lofty = "0.22.4"
+base64 = "0.22"
 rodio = { version = "0.21.1", default-features = false }
 mp3lame-encoder = "0.2.5"
 flacenc = "0.5.1"
+fdk-aac-sys = { path = "../../vendor/fdk-aac-sys" }
+vorbis_rs = "0.5.6"
+opusic-sys = "0.7.7"
+ogg = "0.9"
+rubato = "0.16.2"
+shiguredo_mp4 = "2026.5"
 hound = "3.5"
 tempfile = "3"
 thiserror = "2"

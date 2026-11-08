@@ -9,7 +9,7 @@ ignored by version control and must be supplied to a native-stems distribution.
 | Input | float32 `[1, 2, 352800]`, stereo, 44,100 Hz |
 | Output | float32 `[1, 2, 352800]`, vocals |
 | Window | 8 seconds; shorter input is padded with silence |
-| Runtime | LibTorch 2.12; CPU inference |
+| Runtime | LibTorch 2.12; detected CUDA/MPS with safe CPU fallback |
 | Export SHA-256 | `31d794ab054bd70964b6165ceca3b94e00f344f8a0b8bc325def47ce9aa14926` |
 
 The Rust separator performs overlapping inference, writes vocals to a float WAV
@@ -66,7 +66,18 @@ rejects non-finite model output instead of publishing corrupted stems.
 ## Current limits
 
 Only vocals/instrumental separation is provided by this model. Multi-instrument
-stems and GPU acceleration are not implemented in this module. The CALIDAD DSP
+stems are not provided. The loader detects CUDA and Apple Metal when the runtime
+reports availability and retries on CPU if loading or inference fails. The
+actual device and a bounded fallback reason are exposed by `StemSeparator` and
+`StemReceipt`. No partial output is published on an accelerator error; the same
+input window is retried on CPU. Windows Full currently bundles CPU LibTorch and
+therefore cannot use CUDA with that distribution.
+
+On this Mac, a real Metal-enabled probe detected MPS but the frozen graph's
+float64 constants prevented loading on MPS. CPU fallback then completed 44,100
+stereo frames in 7.09 seconds with exact reconstruction and cancellation cleanup.
+Thus detection/fallback is verified; accelerated inference of this artifact is
+not established. The CALIDAD DSP
 chain is ported separately in [`yt-quality`](../../yt-quality/README.md), which
 also provides `prepare_source` using SoXR HQ before model inference. Direct
 callers that skip preparation retain the separator's Rodio linear conversion;

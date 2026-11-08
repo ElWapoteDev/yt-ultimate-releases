@@ -227,8 +227,36 @@ impl AppCore {
     /// original file is intentionally never removed by this operation, and
     /// automatic scans keep it excluded until an explicit import restores it.
     pub fn remove_track(&self, id: &str) -> Result<()> {
+        self.remove_track_entry(id, false)
+    }
+
+    /// Permanently delete the selected file and its library entry. Call only
+    /// after an explicit user confirmation; `remove_track` preserves the file.
+    pub fn delete_track_file(&self, id: &str) -> Result<()> {
+        self.remove_track_entry(id, true)
+    }
+
+    fn remove_track_entry(&self, id: &str, delete_file: bool) -> Result<()> {
         let _import = self.import_lock.lock().map_err(|_| CoreError::Lock)?;
         let path = self.track(id)?.path;
+        if delete_file {
+            if !path.is_absolute() {
+                return Err(CoreError::Invalid(
+                    "La pista no tiene un archivo local válido".into(),
+                ));
+            }
+            match std::fs::symlink_metadata(&path) {
+                Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
+                    return Err(CoreError::Invalid(
+                        "La ruta ya no corresponde a un archivo regular".into(),
+                    ));
+                }
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(error.into());
+                }
+                _ => {}
+            }
+        }
         let mut db = self.connection()?;
         let tx = db.transaction()?;
         let playlists: Vec<String> = {
@@ -257,8 +285,68 @@ impl AppCore {
                 params![path.to_string_lossy(), now()],
             )?;
         }
+        // SQL errors happen before removing bytes. A locked/unremovable file
+        // rolls back all memberships and the entry instead of hiding the file.
+        if delete_file {
+            match std::fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
         tx.commit()?;
         Ok(())
+    }
+
+    pub fn track_metadata(&self, id: &str) -> Result<serde_json::Value> {
+        let raw: String = self
+            .connection()?
+            .query_row(
+                "SELECT metadata_json FROM tracks WHERE id=?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| CoreError::NotFound(id.into()))?;
+        Ok(serde_json::from_str(&raw)?)
+    }
+
+    /// Merge top-level metadata fields while preserving unknown legacy keys.
+    pub fn merge_track_metadata(
+        &self,
+        id: &str,
+        patch: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let fields = patch
+            .as_object()
+            .ok_or_else(|| CoreError::Invalid("La metadata debe ser un objeto".into()))?;
+        let mut db = self.connection()?;
+        let tx = db.transaction()?;
+        let raw: String = tx
+            .query_row(
+                "SELECT metadata_json FROM tracks WHERE id=?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| CoreError::NotFound(id.into()))?;
+        let mut value: serde_json::Value = serde_json::from_str(&raw)?;
+        let existing = value.as_object_mut().ok_or_else(|| {
+            CoreError::Invalid(
+                "La metadata existente no es un objeto; se conserva sin modificar".into(),
+            )
+        })?;
+        existing.extend(fields.clone());
+        let encoded = serde_json::to_string(&value)?;
+        if encoded.len() > 4 * 1024 * 1024 {
+            return Err(CoreError::Invalid("La metadata supera 4 MiB".into()));
+        }
+        tx.execute(
+            "UPDATE tracks SET metadata_json=?1,updated_at=?2 WHERE id=?3",
+            params![encoded, now(), id],
+        )?;
+        tx.commit()?;
+        Ok(value)
     }
 
     pub fn import_file(&self, path: &Path, mode: ImportMode) -> Result<Track> {
@@ -322,6 +410,7 @@ impl AppCore {
             && let Ok(track) = self.track(&id)
             && !track.missing
         {
+            self.refresh_embedded_artwork(&id, &track.path);
             return Ok(Some(track));
         }
         let existing: Option<String> = {
@@ -338,6 +427,7 @@ impl AppCore {
                 .optional()?
         };
         if let Some(id) = existing {
+            self.refresh_embedded_artwork(&id, &source);
             return self.track(&id).map(Some);
         }
 
@@ -408,10 +498,12 @@ impl AppCore {
         let mut duration = 0.0;
         let mut bitrate = 0u32;
         let mut sample_rate = 0u32;
+        let mut artwork_path = String::new();
         if let Ok(tagged) = Probe::open(destination)
             .and_then(|p| Ok(p.guess_file_type()?))
             .and_then(|p| p.read())
         {
+            artwork_path = self.cache_tag_artwork(&tagged).unwrap_or_default();
             duration = tagged.properties().duration().as_secs_f64();
             bitrate = tagged.properties().audio_bitrate().unwrap_or(0);
             sample_rate = tagged.properties().sample_rate().unwrap_or(0);
@@ -439,10 +531,10 @@ impl AppCore {
             .is_none()
             .then(|| destination.to_string_lossy().to_string());
         self.connection()?.execute("INSERT INTO tracks(id,storage_kind,relative_path,external_path,filename,title,artist,album,
-            media_type,mime_type,extension,size_bytes,duration,bitrate,sample_rate,file_modified_at,created_at,updated_at)
-            VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?16,?16)",
+            media_type,mime_type,extension,size_bytes,duration,bitrate,sample_rate,file_modified_at,created_at,updated_at,artwork_path)
+            VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?16,?16,?17)",
             params![id,storage_kind,relative,external,filename,title,artist,album,media_type,mime_type,extension,
-                metadata.len() as i64,duration,bitrate,sample_rate,timestamp])?;
+                metadata.len() as i64,duration,bitrate,sample_rate,timestamp,artwork_path])?;
         self.track(id)
     }
 
@@ -521,7 +613,11 @@ impl AppCore {
                         for entry in entries {
                             match entry {
                                 Ok(entry)
-                                    if entry.file_type().is_ok_and(|kind| !kind.is_symlink()) =>
+                                    if entry.file_type().is_ok_and(|kind| !kind.is_symlink())
+                                        && !entry
+                                            .file_name()
+                                            .to_string_lossy()
+                                            .starts_with(".ytu-") =>
                                 {
                                     pending.push(entry.path())
                                 }

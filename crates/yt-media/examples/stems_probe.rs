@@ -28,6 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     writer.finalize()?;
     let started = Instant::now();
     let separator = StemSeparator::load(model)?;
+    println!("Initial device: {}", separator.device_name());
     let receipt = separator.separate(
         &input,
         dir.path().join("vocals.wav"),
@@ -36,6 +37,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         |p| println!("Frames: {} / {:?}", p.processed_frames, p.total_frames),
     )?;
     assert_eq!(receipt.frames, frames);
+    println!(
+        "Inference device: {}; fallback: {:?}",
+        receipt.device, receipt.fallback_reason
+    );
     let original = hound::WavReader::open(&input)?
         .into_samples::<f32>()
         .collect::<Result<Vec<_>, _>>()?;

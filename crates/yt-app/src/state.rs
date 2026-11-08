@@ -12,9 +12,7 @@ use std::{
 };
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 use yt_core::{AppCore, ImportMode, Job, JobStatus, PlaybackState, Playlist, Settings, Track};
-use yt_media::{
-    AudioPlayer, CancellationToken, Downloader, SearchResult, StreamKind, YoutubeClient,
-};
+use yt_media::{AudioPlayer, CancellationToken, Downloader, YoutubeClient};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Page {
@@ -43,7 +41,7 @@ impl Page {
         match self {
             Self::Home => "home",
             Self::Search => "search",
-            Self::Library => "music",
+            Self::Library => "music-2",
             Self::Playlists => "playlist",
             Self::Stems => "scissors",
             Self::Downloads => "download",
@@ -55,23 +53,27 @@ impl Page {
 pub struct Services {
     pub core: AppCore,
     pub audio: Result<AudioPlayer, String>,
-    pub youtube: YoutubeClient,
-    pub downloader: Downloader,
+    youtube: RefCell<YoutubeClient>,
+    pub(crate) downloader: RefCell<Downloader>,
+    connection_error: RefCell<Option<String>>,
+    browser_session: RefCell<Option<yt_media::BrowserCookieSession>>,
     pub profile: PathBuf,
     pub library_dir: PathBuf,
-    download_slots: Arc<DownloadLimiter>,
+    pub plugins: Result<yt_plugins::PluginHost, String>,
+    pub(crate) download_slots: Arc<DownloadLimiter>,
+    pub(crate) processing_slots: Arc<DownloadLimiter>,
 }
 
 /// A semaphore bounds all downloads while the adjustable limit admits new
 /// work only after active jobs fall below the current preference.
-struct DownloadLimiter {
+pub(crate) struct DownloadLimiter {
     semaphore: Arc<Semaphore>,
     admission: Mutex<()>,
     limit: AtomicUsize,
     changed: Notify,
 }
 
-struct DownloadSlot {
+pub(crate) struct DownloadSlot {
     permit: Option<OwnedSemaphorePermit>,
     limiter: Arc<DownloadLimiter>,
 }
@@ -98,7 +100,10 @@ impl DownloadLimiter {
         self.changed.notify_waiters();
     }
 
-    async fn acquire(self: &Arc<Self>, cancel: &CancellationToken) -> Result<DownloadSlot, String> {
+    pub(crate) async fn acquire(
+        self: &Arc<Self>,
+        cancel: &CancellationToken,
+    ) -> Result<DownloadSlot, String> {
         loop {
             if cancel.is_cancelled() {
                 return Err("La operación fue cancelada".into());
@@ -137,33 +142,113 @@ fn desktop_profile(home: &Path, configuration: &Path, macos: bool) -> PathBuf {
     }
 }
 
+/// Resolve the same profile before startup locking and database initialization.
+pub(crate) fn profile_path() -> Result<PathBuf, String> {
+    let base = directories::BaseDirs::new().ok_or("No se encontró la carpeta de usuario")?;
+    let profile = std::env::var_os("YTU_DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            #[cfg(target_os = "windows")]
+            let configuration = std::env::var_os("APPDATA")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| base.config_dir().to_owned());
+            #[cfg(not(target_os = "windows"))]
+            let configuration = base.config_dir().to_owned();
+            desktop_profile(base.home_dir(), &configuration, cfg!(target_os = "macos"))
+        });
+    Ok(profile)
+}
+
 impl Services {
+    pub fn youtube_client(&self) -> yt_media::Result<YoutubeClient> {
+        if let Some(error) = self.connection_error.borrow().as_ref() {
+            return Err(yt_media::MediaError::InvalidInput(error.clone()));
+        }
+        Ok(self.youtube.borrow().clone())
+    }
+
+    pub fn set_browser_session(
+        &self,
+        session: yt_media::BrowserCookieSession,
+    ) -> Result<(), String> {
+        let settings = self.core.settings().map_err(|error| error.to_string())?;
+        let (youtube, downloader) = Self::connection_clients(&settings, Some(session.clone()))
+            .map_err(|error| error.to_string())?;
+        *self.youtube.borrow_mut() = youtube;
+        *self.downloader.borrow_mut() = downloader;
+        *self.browser_session.borrow_mut() = Some(session);
+        *self.connection_error.borrow_mut() = None;
+        Ok(())
+    }
+    pub fn clear_browser_session(&self) -> Result<(), String> {
+        let settings = self.core.settings().map_err(|error| error.to_string())?;
+        let (youtube, downloader) =
+            Self::connection_clients(&settings, None).map_err(|error| error.to_string())?;
+        *self.youtube.borrow_mut() = youtube;
+        *self.downloader.borrow_mut() = downloader;
+        *self.browser_session.borrow_mut() = None;
+        *self.connection_error.borrow_mut() = None;
+        Ok(())
+    }
+    pub fn browser_session_info(&self) -> Option<(String, usize)> {
+        self.browser_session
+            .borrow()
+            .as_ref()
+            .map(|session| (session.browser_id().to_owned(), session.cookie_count()))
+    }
+
+    fn connection_clients(
+        settings: &Settings,
+        session: Option<yt_media::BrowserCookieSession>,
+    ) -> yt_media::Result<(YoutubeClient, Downloader)> {
+        let cookies_file = settings
+            .extra
+            .get("youtube_cookie_file")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from);
+        let proxy = settings
+            .extra
+            .get("youtube_proxy")
+            .or_else(|| settings.extra.get("proxy"))
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_owned);
+        let options = yt_media::ConnectionOptions {
+            socket_timeout_seconds: settings.download_socket_timeout as u64,
+            proxy,
+            cookies_file,
+        };
+        Ok((
+            match session {
+                Some(session) => YoutubeClient::with_browser_session(options.clone(), session)?,
+                None => YoutubeClient::with_options(options.clone())?,
+            },
+            Downloader::with_options(options)?,
+        ))
+    }
     #[cfg(test)]
     pub(crate) fn for_test(profile: &Path) -> Self {
         let core = AppCore::open(profile).expect("temporary profile");
         Self {
             library_dir: core.library_dir().to_owned(),
             profile: profile.to_owned(),
+            plugins: yt_plugins::PluginHost::open(profile.join("Plugins"))
+                .map(|host| host.with_library(core.clone()))
+                .map_err(|error| error.to_string()),
             core,
             audio: Err("Audio output disabled for tests".into()),
-            youtube: YoutubeClient::new().expect("YouTube client"),
-            downloader: Downloader::new().expect("download client"),
+            youtube: RefCell::new(YoutubeClient::new().expect("YouTube client")),
+            downloader: RefCell::new(Downloader::new().expect("download client")),
+            connection_error: RefCell::new(None),
+            browser_session: RefCell::new(None),
             download_slots: DownloadLimiter::new(3),
+            processing_slots: DownloadLimiter::new(1),
         }
     }
     pub fn open() -> Result<Self, String> {
         let base = directories::BaseDirs::new().ok_or("No se encontró la carpeta de usuario")?;
-        let profile = std::env::var_os("YTU_DATA_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                #[cfg(target_os = "windows")]
-                let configuration = std::env::var_os("APPDATA")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| base.config_dir().to_owned());
-                #[cfg(not(target_os = "windows"))]
-                let configuration = base.config_dir().to_owned();
-                desktop_profile(base.home_dir(), &configuration, cfg!(target_os = "macos"))
-            });
+        let profile = profile_path()?;
         let library_dir = std::env::var_os("YTU_LIBRARY_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| {
@@ -175,18 +260,30 @@ impl Services {
                 }
             });
         let core = AppCore::open_with_library(&profile, &library_dir).map_err(|e| e.to_string())?;
-        let concurrency = core
-            .settings()
-            .map_err(|e| e.to_string())?
-            .max_concurrent_downloads;
+        let settings = core.settings().map_err(|e| e.to_string())?;
+        let (youtube, downloader, connection_error) =
+            match Self::connection_clients(&settings, None) {
+                Ok((youtube, downloader)) => (youtube, downloader, None),
+                Err(error) => (
+                    YoutubeClient::new().map_err(|e| e.to_string())?,
+                    Downloader::new().map_err(|e| e.to_string())?,
+                    Some(error.to_string()),
+                ),
+            };
         Ok(Self {
+            plugins: yt_plugins::PluginHost::open(profile.join("Plugins"))
+                .map(|host| host.with_library(core.clone()))
+                .map_err(|error| error.to_string()),
             core,
             audio: AudioPlayer::new().map_err(|e| e.to_string()),
-            youtube: YoutubeClient::new().map_err(|e| e.to_string())?,
-            downloader: Downloader::new().map_err(|e| e.to_string())?,
+            youtube: RefCell::new(youtube),
+            downloader: RefCell::new(downloader),
+            connection_error: RefCell::new(connection_error),
+            browser_session: RefCell::new(None),
             profile,
             library_dir,
-            download_slots: DownloadLimiter::new(concurrency as usize),
+            download_slots: DownloadLimiter::new(settings.max_concurrent_downloads as usize),
+            processing_slots: DownloadLimiter::new(settings.max_concurrent_processing as usize),
         })
     }
 }
@@ -200,30 +297,52 @@ pub struct DownloadView {
     pub detail: String,
     pub source: String,
     pub video: bool,
+    pub thumbnail: String,
+    pub resumable: bool,
+    pub discarded: bool,
 }
 
 #[derive(Clone)]
 pub struct AppState {
     pub services: Rc<Services>,
     pub page: Signal<Page>,
+    pub settings_section: Signal<String>,
+    pub plugins_revision: Signal<u64>,
     pub library: Signal<Vec<Track>>,
     pub playlists: Signal<Vec<Playlist>>,
     pub settings: Signal<Settings>,
     pub current: Signal<Option<Track>>,
     pub video_track: Signal<Option<Track>>,
+    pub video_open: Signal<bool>,
+    pub video_generation: Signal<u64>,
+    pub video_url: Signal<Option<String>>,
+    pub stream_request: Signal<Option<CancellationToken>>,
+    pub stream_session: Signal<Option<yt_media::PlaybackSession>>,
+    pub stream_generation: Signal<u64>,
+    pub stream_loading: Signal<bool>,
+    pub pending_seek: Signal<Option<f64>>,
+    pub seek_busy: Signal<bool>,
     pub history: Signal<Vec<Track>>,
     pub queue: Signal<Vec<Track>>,
     pub playing: Signal<bool>,
     pub position: Signal<f64>,
     pub duration: Signal<f64>,
     pub volume: Signal<f32>,
+    pub previous_volume: Signal<f32>,
+    pub playback_error: Signal<Option<String>>,
+    pub buffering: Signal<bool>,
+    pub recovering: Signal<bool>,
+    pub recovery_attempts: Signal<u8>,
     pub rate: Signal<f32>,
     pub shuffle: Signal<bool>,
     pub repeat: Signal<u8>,
     pub queue_open: Signal<bool>,
     pub options_open: Signal<bool>,
     pub menu_track: Signal<Option<Track>>,
+    pub chipmunk_track: Signal<Option<Track>>,
+    pub information_track: Signal<Option<Track>>,
     pub notice: Signal<Option<String>>,
+    notice_generation: Signal<u64>,
     pub busy: Signal<bool>,
     pub downloads: Signal<Vec<DownloadView>>,
     pub cancellations: Signal<HashMap<String, CancellationToken>>,
@@ -232,22 +351,34 @@ pub struct AppState {
 }
 
 fn restore_playback(core: &AppCore, state: &PlaybackState) -> (Option<Track>, Vec<Track>) {
+    let find_track = |id: &String| {
+        core.track(id)
+            .ok()
+            .filter(|track| !track.missing)
+            .or_else(|| {
+                state
+                    .remote_tracks
+                    .iter()
+                    .find(|track| &track.id == id && crate::remote::is_remote(track))
+                    .cloned()
+            })
+    };
     let current_id = state.current_index.and_then(|index| state.queue.get(index));
     let current = current_id
-        .and_then(|id| core.track(id).ok())
+        .and_then(find_track)
         .filter(|track| !track.missing);
     let queue = state
         .queue
         .iter()
         .enumerate()
         .filter(|(index, _)| Some(*index) != state.current_index)
-        .filter_map(|(_, id)| core.track(id).ok())
+        .filter_map(|(_, id)| find_track(id))
         .filter(|track| !track.missing)
         .collect();
     (current, queue)
 }
 
-fn download_view(job: &Job) -> DownloadView {
+pub(crate) fn download_view(job: &Job) -> DownloadView {
     DownloadView {
         id: job.id.clone(),
         title: job.payload["title"].as_str().unwrap_or("Descarga").into(),
@@ -257,6 +388,8 @@ fn download_view(job: &Job) -> DownloadView {
             JobStatus::Running => "Descargando",
             JobStatus::Completed => "Completado",
             JobStatus::Error => "Error",
+            JobStatus::Canceled if job.result["discarded"] == true => "Descartado",
+            JobStatus::Canceled if job.result["resumable"] == true => "En pausa",
             JobStatus::Canceled => "Cancelado",
             JobStatus::Interrupted => "Interrumpido",
         }
@@ -267,6 +400,9 @@ fn download_view(job: &Job) -> DownloadView {
             job.error.clone()
         },
         source: job.payload["url"].as_str().unwrap_or_default().into(),
+        thumbnail: job.payload["thumbnail"].as_str().unwrap_or_default().into(),
+        resumable: job.result["resumable"] == true || job.status == JobStatus::Interrupted,
+        discarded: job.result["discarded"] == true,
         video: job.payload["video"]
             .as_bool()
             .unwrap_or_else(|| job.payload["type"].as_str() == Some("video")),
@@ -286,15 +422,21 @@ fn save_playback_if_changed(
     Ok(true)
 }
 
+// Application state is shared by tasks which deliberately outlive individual pages.
+// Give those signals the same lifetime as the application task scope.
+fn use_app_signal<T: 'static>(init: impl FnOnce() -> T) -> Signal<T> {
+    use_hook(|| Signal::new_in_scope(init(), ScopeId::ROOT))
+}
+
 pub fn use_app_state(services: Rc<Services>) -> AppState {
     let core = &services.core;
     let initial_result = use_hook(|| core.load_playback().map_err(|e| e.to_string()));
     let initial = initial_result.clone().unwrap_or_default();
     let restored = use_hook(|| restore_playback(core, &initial));
-    let library = use_signal(|| core.library("").unwrap_or_default());
-    let playlists = use_signal(|| core.playlists().unwrap_or_default());
-    let settings = use_signal(|| core.settings().unwrap_or_default());
-    let history = use_signal(|| {
+    let library = use_app_signal(|| core.library("").unwrap_or_default());
+    let playlists = use_app_signal(|| core.playlists().unwrap_or_default());
+    let settings = use_app_signal(|| core.settings().unwrap_or_default());
+    let history = use_app_signal(|| {
         let mut seen = std::collections::HashSet::new();
         core.history(50)
             .unwrap_or_default()
@@ -303,56 +445,81 @@ pub fn use_app_state(services: Rc<Services>) -> AppState {
             .filter(|track| seen.insert(track.id.clone()) && !track.missing)
             .collect()
     });
-    let queue = use_signal(|| restored.1.clone());
+    let queue = use_app_signal(|| restored.1.clone());
     AppState {
         services: services.clone(),
-        page: use_signal(|| Page::Home),
+        page: use_app_signal(|| Page::Home),
+        settings_section: use_app_signal(String::new),
+        plugins_revision: use_app_signal(|| 0),
         library,
         playlists,
         settings,
-        current: use_signal(|| restored.0.clone()),
-        video_track: use_signal(|| None),
+        current: use_app_signal(|| restored.0.clone()),
+        video_track: use_app_signal(|| None),
+        video_open: use_app_signal(|| false),
+        video_generation: use_app_signal(|| 0),
+        video_url: use_app_signal(|| None),
+        stream_request: use_app_signal(|| None),
+        stream_session: use_app_signal(|| None),
+        stream_generation: use_app_signal(|| 0),
+        stream_loading: use_app_signal(|| false),
+        pending_seek: use_app_signal(|| None),
+        seek_busy: use_app_signal(|| false),
         history,
         queue,
-        playing: use_signal(|| false),
-        position: use_signal(|| {
+        playing: use_app_signal(|| false),
+        position: use_app_signal(|| {
             if restored.0.is_some() {
                 initial.position_seconds
             } else {
                 0.0
             }
         }),
-        duration: use_signal(|| restored.0.as_ref().map(|t| t.duration).unwrap_or(0.0)),
-        volume: use_signal(|| {
+        duration: use_app_signal(|| restored.0.as_ref().map(|t| t.duration).unwrap_or(0.0)),
+        previous_volume: use_app_signal(|| {
+            if initial.volume > 0.0 {
+                initial.volume as f32
+            } else {
+                0.7
+            }
+        }),
+        playback_error: use_app_signal(|| None),
+        buffering: use_app_signal(|| false),
+        recovering: use_app_signal(|| false),
+        recovery_attempts: use_app_signal(|| 0),
+        volume: use_app_signal(|| {
             if initial.playback_rate > 0.0 {
                 initial.volume as f32
             } else {
                 0.8
             }
         }),
-        rate: use_signal(|| {
+        rate: use_app_signal(|| {
             if initial.playback_rate > 0.0 {
                 initial.playback_rate as f32
             } else {
                 1.0
             }
         }),
-        shuffle: use_signal(|| initial.shuffle),
-        repeat: use_signal(|| match initial.repeat.as_str() {
+        shuffle: use_app_signal(|| initial.shuffle),
+        repeat: use_app_signal(|| match initial.repeat.as_str() {
             "all" => 1,
             "one" => 2,
             _ => 0,
         }),
-        queue_open: use_signal(|| false),
-        options_open: use_signal(|| false),
-        menu_track: use_signal(|| None),
-        notice: use_signal(|| {
+        queue_open: use_app_signal(|| false),
+        options_open: use_app_signal(|| false),
+        menu_track: use_app_signal(|| None),
+        chipmunk_track: use_app_signal(|| None),
+        information_track: use_app_signal(|| None),
+        notice: use_app_signal(|| {
             initial_result
                 .err()
                 .map(|e| format!("No se pudo restaurar la reproducción: {e}"))
         }),
-        busy: use_signal(|| false),
-        downloads: use_signal(|| {
+        notice_generation: use_app_signal(|| 0),
+        busy: use_app_signal(|| false),
+        downloads: use_app_signal(|| {
             core.jobs()
                 .unwrap_or_default()
                 .iter()
@@ -360,8 +527,8 @@ pub fn use_app_state(services: Rc<Services>) -> AppState {
                 .map(download_view)
                 .collect()
         }),
-        cancellations: use_signal(HashMap::new),
-        sleep_at: use_signal(|| None),
+        cancellations: use_app_signal(HashMap::new),
+        sleep_at: use_app_signal(|| None),
         last_saved_playback: use_hook(|| Rc::new(RefCell::new(None))),
     }
 }
@@ -369,7 +536,18 @@ pub fn use_app_state(services: Rc<Services>) -> AppState {
 impl AppState {
     pub fn notify(&self, text: impl Into<String>) {
         let mut notice = self.notice;
-        notice.set(Some(text.into()));
+        let text = text.into();
+        crate::native::record_log(&self.services.profile, &text);
+        notice.set(Some(text));
+        let mut sequence = self.notice_generation;
+        let generation = sequence.peek().wrapping_add(1);
+        sequence.set(generation);
+        dioxus::core::spawn_forever(async move {
+            tokio::time::sleep(Duration::from_secs(4)).await;
+            if *sequence.peek() == generation {
+                notice.set(None);
+            }
+        });
     }
 
     pub fn refresh(&self) {
@@ -386,6 +564,17 @@ impl AppState {
     }
 
     pub fn play(&self, track: Track) {
+        let mut error = self.playback_error;
+        error.set(None);
+        let mut recovery = self.recovering;
+        recovery.set(false);
+        if crate::remote::is_remote(&track) {
+            self.start_remote(track, 0.0);
+            return;
+        }
+        self.cancel_remote();
+        let mut video_url = self.video_url;
+        video_url.set(None);
         if track.media_type == "video" {
             if let Ok(audio) = &self.services.audio {
                 if let Err(error) = audio.stop() {
@@ -394,11 +583,13 @@ impl AppState {
                 }
             }
             let mut state = self.clone();
-            state.playing.set(false);
+            state.playing.set(true);
             state.position.set(0.0);
             state.duration.set(track.duration);
             state.current.set(Some(track.clone()));
             state.video_track.set(Some(track.clone()));
+            state.video_open.set(true);
+            state.video_generation += 1;
             state
                 .history
                 .write()
@@ -407,6 +598,7 @@ impl AppState {
             if let Err(error) = state.services.core.record_playback(&track.id, 0.0) {
                 state.notify(error.to_string());
             }
+            crate::native::record_recent(&track.path);
             state.persist_playback();
             return;
         }
@@ -443,6 +635,7 @@ impl AppState {
         match result {
             Ok(()) => {
                 let mut s = self.clone();
+                s.playback_error.set(None);
                 s.duration.set(track.duration);
                 s.position.set(position);
                 s.playing.set(true);
@@ -454,9 +647,12 @@ impl AppState {
                         s.notify(e.to_string());
                     }
                 }
+                crate::native::record_recent(&track.path);
                 s.persist_playback();
             }
             Err(error) => {
+                let mut playback_error = self.playback_error;
+                playback_error.set(Some(error.clone()));
                 let previous_path = self.current.peek().as_ref().map(|track| track.path.clone());
                 if self
                     .services
@@ -477,9 +673,44 @@ impl AppState {
         let Some(track) = current else {
             return;
         };
+        if *self.stream_loading.peek() {
+            self.cancel_remote();
+            return;
+        }
+        if self.playback_error.peek().is_some() {
+            self.retry_playback();
+            return;
+        }
+        if crate::remote::is_remote(&track) {
+            let unloaded = if track.media_type == "video" {
+                self.video_track.peek().is_none()
+            } else {
+                self.services
+                    .audio
+                    .as_ref()
+                    .is_ok_and(|audio| audio.snapshot().remote_id.is_none())
+            };
+            if unloaded {
+                let position = *self.position.peek();
+                self.start_remote(track, position);
+                return;
+            }
+        }
         if track.media_type == "video" {
-            let mut video = self.video_track;
-            video.set(Some(track));
+            if self.video_track.peek().is_none() {
+                let mut state = self.clone();
+                state.video_track.set(Some(track));
+                state.video_open.set(true);
+                state.video_generation += 1;
+                state.playing.set(true);
+            } else {
+                let operation = if *self.playing.peek() {
+                    "pause"
+                } else {
+                    "play"
+                };
+                crate::video::command(self.clone(), serde_json::json!({"op": operation}));
+            }
             return;
         }
         let Ok(audio) = &self.services.audio else {
@@ -488,7 +719,7 @@ impl AppState {
         };
         let mut s = self.clone();
         let was_playing = *s.playing.read();
-        if audio.snapshot().path.is_none() {
+        if audio.snapshot().path.is_none() && audio.snapshot().remote_id.is_none() {
             let position = *self.position.peek();
             self.play_at(track, position, false);
             return;
@@ -542,6 +773,12 @@ impl AppState {
             }
         }
         if tracks.is_empty() {
+            if *self.stream_loading.peek() {
+                self.cancel_remote();
+            }
+            if self.video_track.peek().is_some() {
+                crate::video::command(self.clone(), serde_json::json!({"op":"pause"}));
+            }
             if let Ok(audio) = &self.services.audio {
                 if let Err(error) = audio.pause() {
                     self.notify(error.to_string());
@@ -566,10 +803,7 @@ impl AppState {
     pub fn previous(&self) {
         let position = *self.position.peek();
         let current = self.current.peek().clone();
-        let is_video = current
-            .as_ref()
-            .is_some_and(|track| track.media_type == "video");
-        if position > 3.0 && !is_video {
+        if position > 3.0 {
             self.seek(0.0);
             return;
         }
@@ -591,10 +825,6 @@ impl AppState {
             .peek()
             .as_ref()
             .is_some_and(|track| track.media_type == "video");
-        if is_video {
-            self.notify("Usa los controles del vídeo para cambiar la posición");
-            return;
-        }
         if !seconds.is_finite() {
             self.notify("La posición de reproducción no es válida");
             return;
@@ -605,8 +835,22 @@ impl AppState {
         } else {
             seconds.max(0.0)
         };
+        if is_video {
+            let mut position = self.position;
+            position.set(seconds);
+            crate::video::command(
+                self.clone(),
+                serde_json::json!({"op":"seek","value":seconds}),
+            );
+            self.persist_playback();
+            return;
+        }
         if let Ok(audio) = &self.services.audio {
-            if audio.snapshot().path.is_none() {
+            if audio.snapshot().remote_id.is_some() {
+                self.seek_remote(seconds);
+                return;
+            }
+            if audio.snapshot().path.is_none() && audio.snapshot().remote_id.is_none() {
                 let mut position = self.position;
                 position.set(seconds);
                 self.persist_playback();
@@ -629,8 +873,20 @@ impl AppState {
             return;
         }
         let value = value.clamp(0.0, 1.0);
+        if value > 0.0 {
+            let mut previous = self.previous_volume;
+            previous.set(value);
+        }
         let mut volume = self.volume;
         volume.set(value);
+        if self.video_track.peek().is_some() {
+            crate::video::command(
+                self.clone(),
+                serde_json::json!({"op":"volume","value":value}),
+            );
+            self.persist_playback();
+            return;
+        }
         if let Ok(audio) = &self.services.audio {
             if let Err(e) = audio.set_volume(value) {
                 self.notify(e.to_string());
@@ -639,7 +895,41 @@ impl AppState {
         self.persist_playback();
     }
 
+    pub fn toggle_mute(&self) {
+        let value = if *self.volume.peek() > 0.0 {
+            0.0
+        } else {
+            *self.previous_volume.peek()
+        };
+        self.set_volume(value);
+    }
+    pub fn retry_playback(&self) {
+        let current = self.current.peek().clone();
+        let position = *self.position.peek();
+        if let Some(track) = current {
+            if crate::remote::is_remote(&track) {
+                self.start_remote(track, position);
+            } else if track.media_type == "video" {
+                self.play(track);
+                self.seek(position);
+            } else {
+                self.play_at(track, position, false);
+            }
+        }
+    }
+
     pub fn set_rate(&self, value: f32) {
+        if !value.is_finite() || !(0.25..=4.0).contains(&value) {
+            self.notify("La velocidad debe estar entre 0,25× y 4×");
+            return;
+        }
+        if self.video_track.peek().is_some() {
+            let mut rate = self.rate;
+            rate.set(value);
+            crate::video::command(self.clone(), serde_json::json!({"op":"rate","value":value}));
+            self.persist_playback();
+            return;
+        }
         if let Ok(audio) = &self.services.audio {
             match audio.set_speed(value) {
                 Ok(()) => {
@@ -673,6 +963,14 @@ impl AppState {
             0
         });
         let state = PlaybackState {
+            remote_tracks: self
+                .current
+                .peek()
+                .iter()
+                .chain(self.queue.peek().iter())
+                .filter(|track| crate::remote::is_remote(track))
+                .cloned()
+                .collect(),
             queue,
             current_index,
             position_seconds: if current_index.is_some() {
@@ -697,16 +995,114 @@ impl AppState {
     }
 
     pub fn save_settings(&self, value: Settings) {
+        let connection_changed = {
+            let previous = self.settings.peek();
+            value.download_socket_timeout != previous.download_socket_timeout
+                || value.extra.get("youtube_cookie_file")
+                    != previous.extra.get("youtube_cookie_file")
+                || value.extra.get("proxy") != previous.extra.get("proxy")
+                || value.extra.get("youtube_proxy") != previous.extra.get("youtube_proxy")
+                || self.services.connection_error.borrow().is_some()
+        };
+        let clients = if connection_changed {
+            match Services::connection_clients(
+                &value,
+                self.services.browser_session.borrow().clone(),
+            ) {
+                Ok(clients) => Some(clients),
+                Err(error) => {
+                    self.notify(format!("No se guardó la conexión: {error}"));
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         match self.services.core.save_settings(&value) {
             Ok(()) => {
+                if let Some((youtube, downloader)) = clients {
+                    *self.services.youtube.borrow_mut() = youtube;
+                    *self.services.downloader.borrow_mut() = downloader;
+                    *self.services.connection_error.borrow_mut() = None;
+                }
                 self.services
                     .download_slots
                     .set_limit(value.max_concurrent_downloads as usize);
+                self.services
+                    .processing_slots
+                    .set_limit(value.max_concurrent_processing as usize);
                 let mut settings = self.settings;
                 settings.set(value);
             }
             Err(e) => self.notify(format!("No se guardaron los ajustes: {e}")),
         }
+    }
+
+    pub fn update_setting(&self, key: &str, value: serde_json::Value) {
+        let result = serde_json::to_value(self.settings.peek().clone()).and_then(|mut settings| {
+            settings[key] = value;
+            serde_json::from_value::<Settings>(settings)
+        });
+        match result {
+            Ok(settings) => self.save_settings(settings),
+            Err(error) => self.notify(format!("No se pudo guardar el ajuste: {error}")),
+        }
+    }
+
+    pub fn plugin_event(&self, name: &str, payload: serde_json::Value) {
+        if !self.settings.peek().developer_mode {
+            return;
+        }
+        let Ok(host) = self.services.plugins.clone() else {
+            return;
+        };
+        let event = yt_plugins::PluginEvent {
+            name: name.to_owned(),
+            payload,
+        };
+        let state = self.clone();
+        dioxus::core::spawn_forever(async move {
+            match tokio::task::spawn_blocking(move || host.dispatch_event(event)).await {
+                Ok(Ok(deliveries)) => {
+                    if deliveries.iter().any(|delivery| delivery.library_changed) {
+                        state.refresh();
+                    }
+                }
+                Ok(Err(error)) => state.notify(format!(
+                    "No se pudo enviar el evento a los plugins: {error}"
+                )),
+                Err(error) => state.notify(format!("La tarea del plugin se interrumpió: {error}")),
+            }
+        });
+    }
+
+    pub fn clean_temporary_files(&self) {
+        if !self.cancellations.peek().is_empty() {
+            self.notify("Espera a que terminen los trabajos antes de limpiar temporales");
+            return;
+        }
+        let state = self.clone();
+        dioxus::core::spawn_forever(async move {
+            let core = state.services.core.clone();
+            match tokio::task::spawn_blocking(move || core.clean_temporary_files()).await {
+                Ok(Ok(report)) => state.notify(format!(
+                    "{} temporales eliminados · {} liberados{}",
+                    report.files_removed,
+                    size_label(report.bytes_removed),
+                    if report.errors.is_empty() {
+                        String::new()
+                    } else {
+                        format!("; {} archivos no se pudieron limpiar", report.errors.len())
+                    }
+                )),
+                Ok(Err(error)) => {
+                    state.notify(format!("No se pudieron limpiar los temporales: {error}"))
+                }
+                Err(error) => {
+                    state.notify(format!("No se pudieron limpiar los temporales: {error}"))
+                }
+            }
+        });
     }
 
     pub fn import_files(&self, folder: bool) {
@@ -742,30 +1138,34 @@ impl AppState {
         });
     }
 
-    pub fn export_audio(&self, track: Track, format: yt_audio::AudioFormat) {
-        let mut state = self.clone();
+    pub fn export_playlist(&self, playlist: Playlist) {
+        let state = self.clone();
         dioxus::core::spawn_forever(async move {
-            let name = yt_media::safe_file_name(&track.title, format.extension());
             let Some(output) = rfd::AsyncFileDialog::new()
-                .set_title("Exportar audio")
-                .set_file_name(name)
-                .add_filter("Audio", &[format.extension()])
+                .set_title("Exportar playlist")
+                .set_file_name(yt_media::safe_file_name(&playlist.name, "m3u8"))
+                .add_filter("Playlist M3U8", &["m3u8"])
                 .save_file()
                 .await
             else {
                 return;
             };
-            let output = output.path().to_owned();
-            let cancel = CancellationToken::new();
-            state.busy.set(true);
-            state.notify("Exportando audio…");
-            let result = tokio::task::spawn_blocking(move || {
-                yt_audio::convert(&track.path, &output, format, &cancel, |_| {})
+            let core = state.services.core.clone();
+            let path = output.path().to_owned();
+            match tokio::task::spawn_blocking(move || {
+                core.export_playlist_m3u8(&playlist.id, &path)
             })
-            .await;
-            state.busy.set(false);
-            match result {
-                Ok(Ok(path)) => state.notify(format!("Audio exportado: {}", path.display())),
+            .await
+            {
+                Ok(Ok(report)) => state.notify(format!(
+                    "Playlist exportada: {} pistas{}",
+                    report.exported_tracks,
+                    if report.skipped.is_empty() {
+                        String::new()
+                    } else {
+                        format!("; {} archivos no disponibles", report.skipped.len())
+                    }
+                )),
                 Ok(Err(error)) => state.notify(format!("No se pudo exportar: {error}")),
                 Err(error) => state.notify(format!("No se pudo exportar: {error}")),
             }
@@ -785,6 +1185,9 @@ impl AppState {
         busy.set(false);
         match result {
             Ok(Ok(report)) => {
+                for track in &report.tracks {
+                    crate::native::record_recent(&track.path);
+                }
                 self.refresh();
                 let errors = report
                     .errors
@@ -816,286 +1219,11 @@ impl AppState {
         }
     }
 
-    fn save_download_progress(
-        &self,
-        id: &str,
-        status: JobStatus,
-        progress: f64,
-        message: &str,
-        result: &serde_json::Value,
-        error: &str,
-    ) -> Result<(), String> {
-        let job = self
-            .services
-            .core
-            .update_job(id, status, progress, message, result, error)
-            .map_err(|e| e.to_string())?;
-        let view = download_view(&job);
-        let mut downloads = self.downloads;
-        if let Some(row) = downloads.write().iter_mut().find(|row| row.id == id) {
-            *row = view;
-        }
-        Ok(())
-    }
-
-    pub fn download(&self, item: SearchResult, video: bool, play_when_ready: bool) {
-        self.download_into_playlist(item, video, play_when_ready, None, None);
-    }
-
-    pub fn download_playlist(&self, name: &str, items: Vec<SearchResult>, video: bool) {
-        let name = name
-            .chars()
-            .map(|c| {
-                if c.is_control() || "/\\".contains(c) {
-                    ' '
-                } else {
-                    c
-                }
-            })
-            .take(240)
-            .collect::<String>();
-        let name = if name.trim().is_empty() {
-            "Playlist"
-        } else {
-            name.trim()
-        };
-        let playlist = self.services.core.playlists().and_then(|list| {
-            match list.into_iter().find(|p| p.name.eq_ignore_ascii_case(name)) {
-                Some(p) => Ok(p),
-                None => self.services.core.create_playlist(name),
-            }
-        });
-        let playlist = match playlist {
-            Ok(p) => p,
-            Err(e) => {
-                self.notify(e.to_string());
-                return;
-            }
-        };
-        let count = items.len();
-        let order = std::sync::Arc::new(
-            items
-                .iter()
-                .map(|item| item.url.clone())
-                .collect::<Vec<_>>(),
-        );
-        for item in items {
-            self.download_into_playlist(
-                item,
-                video,
-                false,
-                Some(playlist.id.clone()),
-                Some(order.clone()),
-            );
-        }
-        self.refresh();
-        self.notify(format!("{count} descargas añadidas a {}", playlist.name));
-    }
-
-    pub fn retry_download(&self, id: &str) {
-        let Ok(job) = self.services.core.job(id) else {
-            return;
-        };
-        if !job.status.is_terminal() {
-            return;
-        }
-        let value = |key: &str| job.payload[key].as_str().unwrap_or_default().to_owned();
-        self.download_into_playlist(
-            SearchResult {
-                id: String::new(),
-                url: value("url"),
-                title: value("title"),
-                thumbnail: value("thumbnail"),
-                channel: value("channel"),
-                duration_seconds: 0,
-                view_count: 0,
-            },
-            job.payload["video"].as_bool().unwrap_or(false),
-            false,
-            job.payload["playlist_id"].as_str().map(str::to_owned),
-            None,
-        );
-    }
-
-    fn download_into_playlist(
-        &self,
-        item: SearchResult,
-        video: bool,
-        play_when_ready: bool,
-        playlist: Option<String>,
-        order: Option<std::sync::Arc<Vec<String>>>,
-    ) {
-        let mut s = self.clone();
-        let payload = serde_json::json!({"url": item.url, "title": item.title, "video": video, "thumbnail": item.thumbnail, "channel": item.channel,"playlist_id":playlist});
-        let job = match s.services.core.create_job("download", &payload) {
-            Ok(job) => job,
-            Err(error) => {
-                s.notify(format!("No se pudo iniciar la descarga: {error}"));
-                return;
-            }
-        };
-        let id = job.id.clone();
-        let cancel = CancellationToken::new();
-        s.cancellations.write().insert(id.clone(), cancel.clone());
-        s.downloads.write().insert(0, download_view(&job));
-        dioxus::core::spawn_forever(async move {
-            let result = async {
-                let _slot = s.services.download_slots.acquire(&cancel).await?;
-                s.save_download_progress(&id,JobStatus::Running,0.0,"Preparando descarga",&serde_json::json!({}),"")?;
-                // Replaying a previously downloaded source reuses its local copy.
-                let existing = s.services.core.library("").map_err(|e|e.to_string())?.into_iter()
-                    .find(|track| !track.missing && track.source_url == item.url && (track.media_type == "video") == video);
-                if let Some(track) = existing { return Ok(track); }
-                let kind = if video { StreamKind::Video } else { StreamKind::Audio };
-                let resolved = tokio::select! {
-                    biased;
-                    _ = cancel.cancelled() => return Err("La operación fue cancelada".to_owned()),
-                    resolved = s.services.youtube.resolve(&item.url,kind) => resolved.map_err(|e|e.to_string())?,
-                };
-                let name = yt_media::safe_file_name(&resolved.media.title, &resolved.extension);
-                let source_cache = tempfile::tempdir().map_err(|e| e.to_string())?;
-                // Each job publishes a unique destination without replacing media.
-                let destination = if video { s.services.library_dir.join(format!("{id}-{name}")) } else { source_cache.path().join(&name) };
-                let (tx, mut rx) = tokio::sync::mpsc::channel(16);
-                let retries=s.settings.read().download_retries;
-                let retry_state=s.clone();
-                let download = async {
-                    let mut attempt=0u8;
-                    loop {
-                        let updates=tx.clone();
-                        let result=s.services.downloader.download_sized(&resolved.stream_url,&destination,resolved.content_length,cancel.clone(),move|progress|{let _=updates.try_send(progress);}).await;
-                        match result {
-                            Err(error) if attempt<retries && matches!(error,yt_media::MediaError::Network(_)|yt_media::MediaError::IncompleteDownload) => {
-                                attempt+=1;
-                                retry_state.save_download_progress(&id,JobStatus::Running,0.0,&format!("Reintentando descarga ({attempt}/{retries})"),&serde_json::json!({}),"").map_err(yt_media::MediaError::Network)?;
-                                tokio::select!{_ = cancel.cancelled()=>return Err(yt_media::MediaError::Cancelled),_=tokio::time::sleep(Duration::from_secs((attempt as u64).min(5)))=>{}}
-                            },
-                            result=>return result,
-                        }
-                    }
-                };
-                tokio::pin!(download);
-                let mut last_saved = Instant::now();
-                let receipt = loop {
-                    tokio::select! {
-                        result = &mut download => break result.map_err(|e| e.to_string())?,
-                        Some(progress) = rx.recv() => {
-                            let percent = progress.fraction().map(|fraction|fraction*100.0).unwrap_or(0.0).min(99.9);
-                            let detail = format!("{:.1} MB", progress.downloaded_bytes as f64 / 1_048_576.0);
-                            if let Some(row) = s.downloads.write().iter_mut().find(|r| r.id == id) {
-                                row.status = "Descargando".into(); row.progress = percent; row.detail = detail.clone();
-                            }
-                            if last_saved.elapsed() >= Duration::from_secs(1) {
-                                s.save_download_progress(&id,JobStatus::Running,percent,&detail,&serde_json::json!({}),"")?;
-                                last_saved=Instant::now();
-                            }
-                        }
-                    }
-                };
-                let published_path = if video { receipt.path } else {
-                    s.save_download_progress(&id,JobStatus::Running,99.9,"Convirtiendo a MP3",&serde_json::json!({}),"")?;
-                    let quality = s.settings.read().audio_quality.parse::<u16>().unwrap_or(320);
-                    let output = s.services.library_dir.join(format!("{id}-{}", yt_media::safe_file_name(&resolved.media.title, "mp3")));
-                    let cancel_conversion = cancel.clone();
-                    tokio::task::spawn_blocking(move || yt_audio::convert(&receipt.path, &output, yt_audio::AudioFormat::Mp3(quality), &cancel_conversion, |_|{}))
-                        .await.map_err(|e|e.to_string())?.map_err(|e|e.to_string())?
-                };
-                // Once the complete file has been atomically published, finish
-                // indexing it even if cancellation arrives at this final step.
-                let core = s.services.core.clone();
-                let source_url=item.url.clone();
-                let track = tokio::task::spawn_blocking(move || {
-                    let track=core.import_file(&published_path,ImportMode::Reference)?;
-                    core.update_track_metadata(&track.id,&resolved.media.title,&resolved.media.channel,&resolved.media.thumbnail,&source_url)
-                }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
-                Ok::<_, String>(track)
-            }.await;
-            s.cancellations.write().remove(&id);
-            match result {
-                Ok(track) => {
-                    if let Some(playlist) = &playlist {
-                        if let Err(error) = s.services.core.add_to_playlist(playlist, &track.id) {
-                            s.notify(format!("El archivo se guardó, pero no se pudo añadir a la playlist: {error}"));
-                        } else if let Some(order) = &order {
-                            let result =
-                                s.services
-                                    .core
-                                    .playlist_tracks(playlist)
-                                    .and_then(|mut tracks| {
-                                        tracks.sort_by_key(|track| {
-                                            order
-                                                .iter()
-                                                .position(|url| *url == track.source_url)
-                                                .map(|index| (1, index))
-                                                .unwrap_or((0, 0))
-                                        });
-                                        s.services.core.reorder_playlist(
-                                            playlist,
-                                            &tracks
-                                                .into_iter()
-                                                .map(|track| track.id)
-                                                .collect::<Vec<_>>(),
-                                        )
-                                    });
-                            if let Err(error) = result {
-                                s.notify(format!(
-                                    "La playlist se guardó, pero no se pudo ordenar: {error}"
-                                ));
-                            }
-                        }
-                    }
-                    if let Err(error) = s.save_download_progress(
-                        &id,
-                        JobStatus::Completed,
-                        100.0,
-                        "Descarga completada",
-                        &serde_json::json!({"track_id":track.id}),
-                        "",
-                    ) {
-                        s.notify(format!("El archivo se guardó, pero no se pudo actualizar su historial: {error}"));
-                    }
-                    s.refresh();
-                    if play_when_ready {
-                        s.play(track);
-                    }
-                }
-                Err(error) => {
-                    let status = if cancel.is_cancelled() {
-                        JobStatus::Canceled
-                    } else {
-                        JobStatus::Error
-                    };
-                    let progress = s
-                        .downloads
-                        .peek()
-                        .iter()
-                        .find(|row| row.id == id)
-                        .map(|row| row.progress)
-                        .unwrap_or(0.0);
-                    if let Err(persistence_error) = s.save_download_progress(
-                        &id,
-                        status,
-                        progress,
-                        &error,
-                        &serde_json::json!({}),
-                        if status == JobStatus::Canceled {
-                            ""
-                        } else {
-                            &error
-                        },
-                    ) {
-                        s.notify(format!(
-                            "No se pudo guardar el estado de la descarga: {persistence_error}"
-                        ));
-                    } else if !cancel.is_cancelled() {
-                        s.notify(format!("No se pudo descargar: {error}"));
-                    }
-                }
-            }
-        });
-    }
-
     pub fn start_polling(&self) {
+        self.plugin_event(
+            "app.started",
+            serde_json::json!({"version":env!("CARGO_PKG_VERSION")}),
+        );
         if self.settings.peek().scan_library_on_startup {
             let state = self.clone();
             dioxus::core::spawn_forever(async move {
@@ -1125,13 +1253,24 @@ impl AppState {
                 if let Ok(audio) = &s.services.audio {
                     let snapshot = audio.snapshot();
                     let current_is_audio = s.current.peek().as_ref().is_some_and(|track| {
-                        track.media_type != "video" && snapshot.path.as_ref() == Some(&track.path)
+                        track.media_type != "video"
+                            && (snapshot.path.as_ref() == Some(&track.path)
+                                || snapshot
+                                    .remote_id
+                                    .as_ref()
+                                    .is_some_and(|id| track.id == format!("youtube:{id}")))
                     });
                     if current_is_audio {
+                        s.buffering.set(
+                            snapshot
+                                .streaming
+                                .as_ref()
+                                .is_some_and(|stream| stream.buffering),
+                        );
                         let old_position = *s.position.peek();
                         let old_duration = *s.duration.peek();
                         let was_playing = *s.playing.peek();
-                        if old_position != snapshot.position_seconds {
+                        if old_position != snapshot.position_seconds && !*s.seek_busy.peek() {
                             s.position.set(snapshot.position_seconds);
                         }
                         if snapshot.duration_seconds > 0.0
@@ -1144,6 +1283,7 @@ impl AppState {
                                 s.notify(error.clone());
                             }
                             s.playing.set(false);
+                            s.recover_remote(error.clone());
                         } else if was_playing && snapshot.finished {
                             s.next(true);
                         }
@@ -1164,6 +1304,11 @@ impl AppState {
     }
 
     fn expire_sleep_timer(&self) {
+        // Resolving/opening a remote source has no player to pause yet. Cancel
+        // that request so its completion cannot restart playback after expiry.
+        if *self.stream_loading.peek() {
+            self.cancel_remote();
+        }
         let pause_error = self
             .services
             .audio
@@ -1171,7 +1316,9 @@ impl AppState {
             .ok()
             .and_then(|audio| audio.pause().err());
         let mut state = self.clone();
-        state.video_track.set(None);
+        if state.video_track.peek().is_some() {
+            crate::video::command(state.clone(), serde_json::json!({"op":"pause"}));
+        }
         state.playing.set(false);
         state.sleep_at.set(None);
         state.persist_playback();
@@ -1243,6 +1390,35 @@ mod tests {
             vec![&upcoming.id]
         );
         assert_eq!(core.load_playback().unwrap().position_seconds, 12.5);
+    }
+
+    #[test]
+    fn restored_remote_queue_rejects_wrong_identity_and_never_requires_local_media() {
+        let profile = tempfile::tempdir().unwrap();
+        let core = AppCore::open(profile.path()).unwrap();
+        let item = yt_media::SearchResult {
+            id: "aqz-KE-bpKQ".into(),
+            url: "https://www.youtube.com/watch?v=aqz-KE-bpKQ".into(),
+            title: "Remote queue".into(),
+            thumbnail: String::new(),
+            duration_seconds: 635,
+            channel: "Channel".into(),
+            view_count: 0,
+        };
+        let remote = crate::remote::track_from_result(item, false);
+        let mut invalid = remote.clone();
+        invalid.id = "youtube:invalid".into();
+        let playback = PlaybackState {
+            queue: vec![remote.id.clone(), invalid.id.clone()],
+            current_index: Some(0),
+            remote_tracks: vec![remote.clone(), invalid],
+            position_seconds: 41.5,
+            ..Default::default()
+        };
+        let (current, queue) = restore_playback(&core, &playback);
+        assert_eq!(current.unwrap().id, remote.id);
+        assert!(queue.is_empty());
+        assert!(core.library("").unwrap().is_empty());
     }
 
     #[test]
@@ -1330,12 +1506,180 @@ mod tests {
 
     type CapturedState = Rc<RefCell<Option<AppState>>>;
 
+    #[tokio::test]
+    async fn recovery_is_bounded_preserves_position_and_cancels_when_paused_or_replaced() {
+        let profile = tempfile::tempdir().unwrap();
+        let services = Rc::new(Services::for_test(profile.path()));
+        let local = services.core.import_bytes("local.mp4", &[1, 2, 3]).unwrap();
+        let capture: CapturedState = Rc::new(RefCell::new(None));
+        let mut dom = VirtualDom::new(action_harness);
+        dom.insert_any_root_context(Box::new(services));
+        dom.insert_any_root_context(Box::new(capture.clone()));
+        dom.rebuild_in_place();
+        let mut state = capture.borrow().as_ref().unwrap().clone();
+        let remote = crate::remote::track_from_result(
+            yt_media::SearchResult {
+                id: "aqz-KE-bpKQ".into(),
+                url: "https://www.youtube.com/watch?v=aqz-KE-bpKQ".into(),
+                title: "Remote".into(),
+                duration_seconds: 635,
+                channel: String::new(),
+                thumbnail: String::new(),
+                view_count: 0,
+            },
+            true,
+        );
+        dom.in_scope(ScopeId::ROOT, || {
+            state.current.set(Some(remote.clone()));
+            state.position.set(32.5);
+            state.playing.set(true);
+            state.recover_remote("Connection reset".into());
+            assert!(*state.recovering.peek());
+            assert!(*state.stream_loading.peek());
+            assert!(!*state.playing.peek());
+            assert_eq!(*state.position.peek(), 32.5);
+            let pending = state.stream_request.peek().clone().unwrap();
+            let generation = *state.stream_generation.peek();
+            state.recover_remote("Repeated event".into());
+            assert_eq!(*state.stream_generation.peek(), generation);
+            state.toggle_play();
+            assert!(pending.is_cancelled());
+            assert!(!*state.recovering.peek());
+            assert!(state.stream_request.peek().is_none());
+            state.recover_remote("Second reset".into());
+            let pending = state.stream_request.peek().clone().unwrap();
+            state.play(local.clone());
+            assert!(pending.is_cancelled());
+            assert_eq!(state.current.peek().as_ref().unwrap().id, local.id);
+            state.recover_remote("Unsupported local video".into());
+            assert!(!*state.playing.peek());
+            assert!(state.playback_error.peek().is_some());
+            assert!(state.stream_request.peek().is_none());
+            state.current.set(Some(remote));
+            state.recovery_attempts.set(2);
+            state.playback_error.set(None);
+            state.recover_remote("Retries exhausted".into());
+            assert_eq!(
+                state.playback_error.peek().as_deref(),
+                Some("Retries exhausted")
+            );
+            assert!(!*state.recovering.peek());
+            assert!(state.stream_request.peek().is_none());
+            state.set_volume(0.35);
+            state.toggle_mute();
+            assert_eq!(*state.volume.peek(), 0.0);
+            state.toggle_mute();
+            assert_eq!(*state.volume.peek(), 0.35);
+        });
+    }
+
     fn action_harness() -> Element {
         let services = use_context::<Rc<Services>>();
         let capture = use_context::<CapturedState>();
         let state = use_app_state(services);
         *capture.borrow_mut() = Some(state);
         rsx! { div { "Action test" } }
+    }
+
+    #[tokio::test]
+    async fn restored_remote_video_resumes_without_borrowing_position_during_start() {
+        let profile = tempfile::tempdir().unwrap();
+        let services = Rc::new(Services::for_test(profile.path()));
+        let remote = crate::remote::track_from_result(
+            yt_media::SearchResult {
+                id: "aqz-KE-bpKQ".into(),
+                url: "https://www.youtube.com/watch?v=aqz-KE-bpKQ".into(),
+                title: "Restored video".into(),
+                thumbnail: String::new(),
+                duration_seconds: 635,
+                channel: String::new(),
+                view_count: 0,
+            },
+            true,
+        );
+        services
+            .core
+            .save_playback(&PlaybackState {
+                queue: vec![remote.id.clone()],
+                remote_tracks: vec![remote.clone()],
+                current_index: Some(0),
+                position_seconds: 41.5,
+                ..Default::default()
+            })
+            .unwrap();
+        let capture: CapturedState = Rc::new(RefCell::new(None));
+        let mut dom = VirtualDom::new(action_harness);
+        dom.insert_any_root_context(Box::new(services));
+        dom.insert_any_root_context(Box::new(capture.clone()));
+        dom.rebuild_in_place();
+        let state = capture.borrow().as_ref().unwrap().clone();
+        dom.in_scope(ScopeId::ROOT, || {
+            state.toggle_play();
+            assert!(*state.stream_loading.peek());
+            assert_eq!(*state.position.peek(), 41.5);
+            assert_eq!(state.current.peek().as_ref().unwrap().id, remote.id);
+            // Cancel before polling tasks; this test never contacts YouTube.
+            state.cancel_remote();
+        });
+    }
+
+    #[tokio::test]
+    async fn sleep_expiry_invalidates_pending_remote_but_keeps_loaded_stream_resumable() {
+        let profile = tempfile::tempdir().unwrap();
+        let services = Rc::new(Services::for_test(profile.path()));
+        let capture: CapturedState = Rc::new(RefCell::new(None));
+        let mut dom = VirtualDom::new(action_harness);
+        dom.insert_any_root_context(Box::new(services));
+        dom.insert_any_root_context(Box::new(capture.clone()));
+        dom.rebuild_in_place();
+        let mut state = capture.borrow().as_ref().unwrap().clone();
+        dom.in_scope(ScopeId::ROOT, || {
+            let pending = CancellationToken::new();
+            state.stream_request.set(Some(pending.clone()));
+            state.stream_loading.set(true);
+            state.pending_seek.set(Some(30.0));
+            state.sleep_at.set(Some(Instant::now()));
+            let generation = *state.stream_generation.peek();
+            state.expire_sleep_timer();
+            assert!(pending.is_cancelled());
+            assert_eq!(*state.stream_generation.peek(), generation + 1);
+            assert!(!*state.stream_loading.peek());
+            assert!(state.pending_seek.peek().is_none());
+            assert!(state.stream_request.peek().is_none());
+            assert!(state.sleep_at.peek().is_none());
+            assert!(!*state.playing.peek());
+
+            let loaded = CancellationToken::new();
+            state.stream_request.set(Some(loaded.clone()));
+            state.playing.set(true);
+            state.sleep_at.set(Some(Instant::now()));
+            state.expire_sleep_timer();
+            assert!(!loaded.is_cancelled());
+            assert!(!*state.playing.peek());
+            assert_eq!(*state.stream_generation.peek(), generation + 1);
+        });
+    }
+
+    #[tokio::test]
+    async fn next_without_queue_cancels_a_pending_remote_instead_of_starting_it_later() {
+        let profile = tempfile::tempdir().unwrap();
+        let services = Rc::new(Services::for_test(profile.path()));
+        let capture: CapturedState = Rc::new(RefCell::new(None));
+        let mut dom = VirtualDom::new(action_harness);
+        dom.insert_any_root_context(Box::new(services));
+        dom.insert_any_root_context(Box::new(capture.clone()));
+        dom.rebuild_in_place();
+        let mut state = capture.borrow().as_ref().unwrap().clone();
+        dom.in_scope(ScopeId::ROOT, || {
+            let token = CancellationToken::new();
+            state.stream_request.set(Some(token.clone()));
+            state.stream_loading.set(true);
+            state.next(false);
+            assert!(token.is_cancelled());
+            assert!(!*state.stream_loading.peek());
+            assert!(!*state.playing.peek());
+            assert_eq!(*state.stream_generation.peek(), 1);
+        });
     }
 
     #[tokio::test]
@@ -1384,12 +1728,15 @@ mod tests {
             state.history.set(vec![second.clone(), third.clone()]);
             state.position.set(15.0);
             state.previous();
+            assert_eq!(state.current.peek().as_ref().unwrap().id, second.id);
+            assert_eq!(*state.position.peek(), 0.0);
+            state.previous();
             assert_eq!(state.current.peek().as_ref().unwrap().id, third.id);
             state.video_track.set(None);
             state.toggle_play();
             assert_eq!(state.video_track.peek().as_ref().unwrap().id, third.id);
             state.seek(30.0);
-            assert_eq!(*state.position.peek(), 0.0);
+            assert_eq!(*state.position.peek(), 30.0);
             state.toggle_shuffle();
             state.cycle_repeat();
             state.set_volume(0.4);
@@ -1400,7 +1747,7 @@ mod tests {
             assert_eq!(state.current.peek().as_ref().unwrap().id, third.id);
             state.sleep_at.set(Some(Instant::now()));
             state.expire_sleep_timer();
-            assert!(state.video_track.peek().is_none());
+            assert!(state.video_track.peek().is_some());
             assert!(state.sleep_at.peek().is_none());
             assert!(!*state.playing.peek());
             let audio = services

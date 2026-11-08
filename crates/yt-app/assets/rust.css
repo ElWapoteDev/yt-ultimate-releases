@@ -1,7 +1,7 @@
-body { background: var(--bg-base); }
+body { background: transparent; }
 .rust-track-main { display:flex; align-items:center; gap:12px; flex:1; min-width:0; text-align:left; cursor:pointer; }
 .rust-track-menu { max-width:440px; max-height:80vh; overflow:auto; }
-.rust-notice { position:fixed; bottom:100px; left:50%; transform:translateX(-50%); z-index:500; display:flex; align-items:center; gap:16px; max-width:min(640px,90vw); padding:12px 18px; background:var(--bg-elevated); border:1px solid var(--border-default); border-radius:10px; box-shadow:0 12px 40px #0008; font-size:13px; }
+.rust-notice { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:500; display:flex; align-items:center; gap:16px; max-width:min(640px,90vw); padding:8px 14px; background:rgba(40,40,43,.82); backdrop-filter:blur(40px) saturate(180%); -webkit-backdrop-filter:blur(40px) saturate(180%); border:.5px solid rgba(255,255,255,.10); border-radius:10px; box-shadow:0 12px 40px #0008; font-size:13px; }
 .rust-danger { color:var(--system-red); }
 .rust-form { display:flex; gap:8px; margin-bottom:22px; }
 .rust-form .input-search-wrap { flex:1; }
@@ -21,3 +21,6 @@ input.rust-progress:disabled { opacity:.35; cursor:default; }
 .rust-track-menu .info-row__value { overflow-wrap:anywhere; }
 @media (max-width:900px) { :root { --page-x:24px; --sidebar-width:180px; } .player-bar { grid-template-columns:minmax(160px,30fr) minmax(250px,44fr) minmax(100px,20fr); gap:8px; } .player-volume { display:none; } .toolbar { flex-wrap:wrap; gap:12px; } }
 @media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none!important; transition:none!important; } }
+
+.rust-progress-hit { position:absolute;inset:-7px 0;width:100%;height:18px;margin:0;opacity:0;cursor:pointer; }
+.player-artwork > .thumb { width:100%;height:100%;border-radius:inherit; }

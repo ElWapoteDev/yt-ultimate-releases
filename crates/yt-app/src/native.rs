@@ -12,9 +12,206 @@ use dioxus::{
 };
 use std::{path::PathBuf, process::Command, sync::Mutex, time::Duration};
 
+#[path = "native_menu.rs"]
+mod application;
+#[path = "native_log.rs"]
+mod logging;
+#[path = "native_media.rs"]
+mod media_controls;
+#[path = "native_window.rs"]
+mod window_controls;
+pub(crate) use logging::record_log;
+pub(crate) use window_controls::WindowControls;
+
+pub(crate) fn application_items(state: &AppState) -> Vec<crate::context_menu::Entry> {
+    application::application_items(state)
+}
+
+pub(crate) fn configure(config: dioxus::desktop::Config) -> dioxus::desktop::Config {
+    #[cfg(target_os = "windows")]
+    {
+        use dioxus::desktop::tao::{
+            event_loop::EventLoopBuilder, platform::windows::EventLoopBuilderExtWindows,
+        };
+        let mut event_loop = EventLoopBuilder::with_user_event();
+        event_loop.with_msg_hook(application::translate_message);
+        config.with_event_loop(event_loop.build())
+    }
+    #[cfg(not(target_os = "windows"))]
+    config
+}
+
+pub(crate) fn read_clipboard_text() -> Result<String, String> {
+    arboard::Clipboard::new()
+        .and_then(|mut clipboard| clipboard.get_text())
+        .map_err(|error| error.to_string())
+}
+
+pub(crate) fn write_clipboard_text(text: &str) -> Result<(), String> {
+    if text.len() > 16 * 1024 * 1024 {
+        return Err("El texto supera el límite de 16 MiB del portapapeles.".into());
+    }
+    arboard::Clipboard::new()
+        .and_then(|mut clipboard| clipboard.set_text(text))
+        .map_err(|error| error.to_string())
+}
+
 // macOS can deliver document events before the first Dioxus component mounts.
 // Keep those paths until the application's importer is available.
 static OPEN_FILES: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+#[cfg(target_os = "macos")]
+thread_local! {
+    static RECENT_MENU: std::cell::RefCell<Option<Submenu>> = const { std::cell::RefCell::new(None) };
+    static RECENT_PATHS: std::cell::RefCell<Vec<(String, PathBuf)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static RECENT_GENERATION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Call before creating a native window so taskbar grouping and recent files
+/// use the same identity as the original Electron application and shortcuts.
+pub(crate) fn initialize() {
+    #[cfg(target_os = "windows")]
+    {
+        let identity = "com.ytultimate.desktop\0"
+            .encode_utf16()
+            .collect::<Vec<_>>();
+        // SAFETY: identity is a live, nul-terminated UTF-16 string.
+        unsafe {
+            SetCurrentProcessExplicitAppUserModelID(identity.as_ptr());
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[link(name = "shell32")]
+unsafe extern "system" {
+    fn SetCurrentProcessExplicitAppUserModelID(app_id: *const u16) -> i32;
+    fn SHAddToRecentDocs(flags: u32, item: *const std::ffi::c_void);
+}
+
+/// Register a local file with the OS recent documents list. Call on the UI
+/// thread after a successful import/open; missing files are never registered.
+pub(crate) fn record_recent(path: &std::path::Path) {
+    let Ok(path) = path.canonicalize() else {
+        return;
+    };
+    if !path.is_file() {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    if let (Some(main), Some(url)) = (
+        objc2::MainThreadMarker::new(),
+        objc2_foundation::NSURL::from_file_path(&path),
+    ) {
+        objc2_app_kit::NSDocumentController::sharedDocumentController(main)
+            .noteNewRecentDocumentURL(&url);
+        refresh_recent_menu();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let path = path
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect::<Vec<_>>();
+        // SHARD_PATHW; Windows associates the path with registered handlers.
+        // SAFETY: path is a live, nul-terminated UTF-16 string.
+        unsafe {
+            SHAddToRecentDocs(0x3, path.as_ptr().cast());
+        }
+    }
+}
+
+/// Begin a native copy drag from an explicit file handle, not an HTML drag.
+/// Call synchronously from the primary mouse-down handler after preventing
+/// the browser default and stopping propagation (playlist reordering is separate).
+pub(crate) fn begin_media_drag(state: &AppState, track: &yt_core::Track) {
+    let path = match track.path.canonicalize() {
+        Ok(path) if path.is_file() => path,
+        _ => {
+            state.notify("El archivo ya no está disponible para arrastrarlo.");
+            return;
+        }
+    };
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let window = dioxus::desktop::window();
+        let result = drag::start_drag(
+            window.window.as_ref(),
+            drag::DragItem::Files(vec![path]),
+            drag::Image::Raw(include_bytes!("../../../packaging/icons/drag-icon.png").to_vec()),
+            |_, _| {},
+            drag::Options {
+                mode: drag::DragMode::Copy,
+                ..Default::default()
+            },
+        );
+        if let Err(error) = result {
+            state.notify(format!("No se pudo iniciar el arrastre: {error}"));
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = path;
+        state.notify("El arrastre nativo está disponible en Windows y Mac.");
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn refresh_recent_menu() {
+    let Some(main) = objc2::MainThreadMarker::new() else {
+        return;
+    };
+    let controller = objc2_app_kit::NSDocumentController::sharedDocumentController(main);
+    let paths = controller
+        .recentDocumentURLs()
+        .iter()
+        .filter_map(|url| url.to_file_path())
+        .take(15)
+        .collect::<Vec<_>>();
+    let generation = RECENT_GENERATION.with(|value| {
+        let next = value.get().wrapping_add(1);
+        value.set(next);
+        next
+    });
+    RECENT_MENU.with(|slot| {
+        let slot = slot.borrow();
+        let Some(menu) = slot.as_ref() else {
+            return;
+        };
+        while menu.remove_at(0).is_some() {}
+        for (index, path) in paths.iter().enumerate() {
+            let label = path
+                .file_name()
+                .unwrap_or(path.as_os_str())
+                .to_string_lossy();
+            let _ = menu.append(&MenuItem::with_id(
+                format!("ytu-recent-{generation}-{index}"),
+                label,
+                path.is_file(),
+                None,
+            ));
+        }
+        if paths.is_empty() {
+            let _ = menu.append(&MenuItem::new("Sin documentos recientes", false, None));
+        }
+        let _ = menu.append(&PredefinedMenuItem::separator());
+        let _ = menu.append(&MenuItem::with_id(
+            "ytu-clear-recent",
+            "Borrar recientes",
+            !paths.is_empty(),
+            None,
+        ));
+    });
+    RECENT_PATHS.with(|value| {
+        *value.borrow_mut() = paths
+            .into_iter()
+            .enumerate()
+            .map(|(index, path)| (format!("ytu-recent-{generation}-{index}"), path))
+            .collect();
+    });
+}
 
 pub fn capture_open_events<T>(event: &Event<T>) {
     if let Event::Opened { urls } = event {
@@ -74,6 +271,14 @@ pub fn menu() -> Menu {
         &item("close", "Cerrar ventana", Code::KeyW, false),
     ])
     .expect("valid file menu");
+    #[cfg(target_os = "macos")]
+    {
+        let recent = Submenu::new("Abrir recientes", true);
+        file.insert(&recent, 2)
+            .expect("recent submenu can be inserted");
+        RECENT_MENU.with(|slot| *slot.borrow_mut() = Some(recent));
+        refresh_recent_menu();
+    }
     if !cfg!(target_os = "macos") {
         file.append_items(&[&PredefinedMenuItem::separator(), &settings, &quit])
             .expect("valid Windows file menu");
@@ -92,7 +297,7 @@ pub fn menu() -> Menu {
     let playback = Submenu::new("Reproducción", true);
     playback
         .append_items(&[
-            &item("play-pause", "Reproducir / Pausar", Code::Space, false),
+            &MenuItem::with_id("ytu-play-pause", "Reproducir / Pausar", true, None),
             &item("previous", "Anterior", Code::ArrowLeft, false),
             &item("next", "Siguiente", Code::ArrowRight, false),
             &PredefinedMenuItem::separator(),
@@ -130,6 +335,7 @@ pub fn menu() -> Menu {
         window.set_as_windows_menu_for_nsapp();
         help.set_as_help_menu_for_nsapp();
     }
+    application::capture_menu(&menu);
     menu
 }
 
@@ -148,41 +354,124 @@ fn item(id: &str, label: &str, code: Code, shift: bool) -> MenuItem {
 }
 
 pub fn use_native(mut state: AppState) {
+    application::use_application_menu(state.clone());
+    window_controls::use_window_frame(&state);
+    media_controls::use_media_controls(state.clone());
+    use_hook({
+        let state = state.clone();
+        move || {
+            record_log(
+                &state.services.profile,
+                &format!(
+                    "Started YT Ultimate {} on {} {}",
+                    env!("CARGO_PKG_VERSION"),
+                    std::env::consts::OS,
+                    std::env::consts::ARCH
+                ),
+            )
+        }
+    });
     let window = use_window();
+    #[cfg(target_os = "macos")]
+    use_hook({
+        let window = window.clone();
+        let state = state.clone();
+        move || {
+            if let Err(error) = window_vibrancy::apply_vibrancy(
+                window.window.as_ref(),
+                window_vibrancy::NSVisualEffectMaterial::Sidebar,
+                Some(window_vibrancy::NSVisualEffectState::Active),
+                None,
+            ) {
+                record_log(
+                    &state.services.profile,
+                    &format!("Window vibrancy: {error}"),
+                );
+            }
+        }
+    });
     let native_window = window.clone();
     let close_state = state.clone();
-    use_muda_event_handler(move |event| match event.id.0.as_str() {
-        "ytu-import" => state.import_files(false),
-        "ytu-import-folder" => state.import_files(true),
-        "ytu-settings" => state.page.set(Page::Settings),
-        "ytu-search" => state.page.set(Page::Search),
-        "ytu-play-pause" => state.toggle_play(),
-        "ytu-previous" => state.previous(),
-        "ytu-next" => state.next(false),
-        "ytu-backward" => {
-            let position = *state.position.peek();
-            state.seek((position - 10.0).max(0.0));
+    use_muda_event_handler(move |event| {
+        if application::handle_event(&state, &event.id.0) {
+            return;
         }
-        "ytu-forward" => {
-            let position = *state.position.peek();
-            state.seek(position + 10.0);
+        match event.id.0.as_str() {
+            "ytu-import" => state.import_files(false),
+            "ytu-import-folder" => state.import_files(true),
+            "ytu-settings" => state.page.set(Page::Settings),
+            "ytu-search" => state.page.set(Page::Search),
+            "ytu-play-pause" => state.toggle_play(),
+            "ytu-previous" => state.previous(),
+            "ytu-next" => state.next(false),
+            "ytu-backward" => {
+                let position = *state.position.peek();
+                state.seek((position - 10.0).max(0.0));
+            }
+            "ytu-forward" => {
+                let position = *state.position.peek();
+                state.seek(position + 10.0);
+            }
+            "ytu-queue" => state.queue_open.toggle(),
+            "ytu-fullscreen" => {
+                native_window.set_fullscreen(native_window.window.fullscreen().is_none())
+            }
+            "ytu-library-folder" => open_folder(&state, &state.services.library_dir),
+            "ytu-profile-folder" => open_folder(&state, &state.services.profile),
+            "ytu-close" | "ytu-quit" => request_close(&state),
+            #[cfg(target_os = "macos")]
+            "ytu-clear-recent" => {
+                if let Some(main) = objc2::MainThreadMarker::new() {
+                    // SAFETY: this action runs on AppKit's main thread. The sender
+                    // is optional and no document/file is deleted by this method.
+                    unsafe {
+                        objc2_app_kit::NSDocumentController::sharedDocumentController(main)
+                            .clearRecentDocuments(None);
+                    }
+                    refresh_recent_menu();
+                }
+            }
+            #[cfg(target_os = "macos")]
+            id if id.starts_with("ytu-recent-") => {
+                let path = RECENT_PATHS.with(|paths| {
+                    paths
+                        .borrow()
+                        .iter()
+                        .find(|(key, _)| key == id)
+                        .map(|(_, path)| path.clone())
+                });
+                if let Some(path) = path {
+                    let state = state.clone();
+                    dioxus::core::spawn_forever(async move {
+                        state.import_paths(vec![path]).await;
+                    });
+                }
+            }
+            _ => {}
         }
-        "ytu-queue" => state.queue_open.toggle(),
-        "ytu-fullscreen" => {
-            native_window.set_fullscreen(native_window.window.fullscreen().is_none())
-        }
-        "ytu-library-folder" => open_folder(&state, &state.services.library_dir),
-        "ytu-profile-folder" => open_folder(&state, &state.services.profile),
-        "ytu-close" | "ytu-quit" => {
-            prepare_close(&state);
-            native_window.close();
-        }
-        _ => {}
     });
     let import_state = close_state.clone();
+    let import_window = window.clone();
     use_hook(move || {
         spawn(async move {
             loop {
+                let profile = import_state.services.profile.clone();
+                let requests = tokio::task::spawn_blocking(move || {
+                    crate::native_instance::take_requests(&profile)
+                })
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .unwrap_or_default();
+                if !requests.is_empty() {
+                    import_window.window.set_minimized(false);
+                    import_window.window.set_visible(true);
+                    import_window.window.set_focus();
+                    let paths = requests.into_iter().flatten().collect::<Vec<_>>();
+                    if !paths.is_empty() {
+                        import_state.import_paths(paths).await;
+                    }
+                }
                 let paths = OPEN_FILES
                     .lock()
                     .map(|mut pending| std::mem::take(&mut *pending))
@@ -199,8 +488,20 @@ pub fn use_native(mut state: AppState) {
             window_id,
             event: WindowEvent::CloseRequested,
             ..
-        } if *window_id == window.id() => prepare_close(&close_state),
-        Event::Reopen { .. } => {
+        } if *window_id == window.id() => {
+            if crate::updates::request_exit(&close_state) {
+                window.set_close_behavior(dioxus::desktop::WindowCloseBehaviour::WindowHides);
+            } else {
+                prepare_close(&close_state);
+            }
+        }
+        Event::Reopen {
+            has_visible_windows: false,
+            ..
+        } if !window.window.is_visible() || window.window.is_minimized() => {
+            // AppKit owns the focus of open/save panels. Activating an already
+            // visible application must not focus the parent behind its sheet.
+            window.window.set_minimized(false);
             window.window.set_visible(true);
             window.window.set_focus();
         }
@@ -209,13 +510,23 @@ pub fn use_native(mut state: AppState) {
 }
 
 fn prepare_close(state: &AppState) {
+    record_log(&state.services.profile, "Application stopping");
+    state.cancel_remote();
+    if state.settings.peek().developer_mode {
+        if let Ok(host) = &state.services.plugins {
+            let _ = host.dispatch_event(yt_plugins::PluginEvent {
+                name: "app.stopping".into(),
+                payload: serde_json::json!({}),
+            });
+        }
+    }
     for cancellation in state.cancellations.peek().values() {
         cancellation.cancel();
     }
     state.persist_playback();
 }
 
-fn open_folder(state: &AppState, path: &std::path::Path) {
+pub(crate) fn open_folder(state: &AppState, path: &std::path::Path) {
     let executable = if cfg!(target_os = "macos") {
         "/usr/bin/open"
     } else {
@@ -223,7 +534,7 @@ fn open_folder(state: &AppState, path: &std::path::Path) {
     };
     let path = path.to_owned();
     let state = state.clone();
-    spawn(async move {
+    dioxus::core::spawn_forever(async move {
         let result =
             tokio::task::spawn_blocking(move || Command::new(executable).arg(path).status()).await;
         match result {
@@ -233,4 +544,319 @@ fn open_folder(state: &AppState, path: &std::path::Path) {
             Err(error) => state.notify(format!("No se pudo abrir la carpeta: {error}")),
         }
     });
+}
+
+/// Copy through the operating system, on the UI thread, without browser permissions.
+pub(crate) fn copy_text(state: &AppState, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    if let Err(error) = write_clipboard_text(text) {
+        state.notify(format!("No se pudo copiar el texto: {error}"));
+    }
+}
+
+fn existing_file(path: &std::path::Path) -> Result<PathBuf, String> {
+    path.canonicalize()
+        .ok()
+        .filter(|path| path.is_file())
+        .ok_or_else(|| "El archivo ya no está disponible.".to_owned())
+}
+
+fn openable_file(path: &std::path::Path) -> Result<PathBuf, String> {
+    let path = existing_file(path)?;
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("");
+    if ![
+        "mp3", "mp4", "m4a", "webm", "mkv", "wav", "flac", "aac", "ogg", "opus", "m3u", "m3u8",
+    ]
+    .iter()
+    .any(|allowed| extension.eq_ignore_ascii_case(allowed))
+    {
+        return Err("Solo se pueden abrir archivos multimedia con otra aplicación.".into());
+    }
+    Ok(path)
+}
+
+fn browser_url(value: &str) -> Result<String, String> {
+    let url = url::Url::parse(value).map_err(|_| "El enlace no es válido.".to_owned())?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || value.chars().any(char::is_control)
+    {
+        return Err("Solo se pueden abrir enlaces HTTP o HTTPS sin credenciales.".into());
+    }
+    Ok(url.into())
+}
+
+fn run_native_action(
+    state: &AppState,
+    action: impl FnOnce() -> Result<(), String> + Send + 'static,
+) {
+    let state = state.clone();
+    dioxus::core::spawn_forever(async move {
+        match tokio::task::spawn_blocking(action).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => state.notify(error),
+            Err(error) => state.notify(format!("No se pudo completar la acción: {error}")),
+        }
+    });
+}
+
+pub(crate) fn reveal_file(state: &AppState, path: &std::path::Path) {
+    match existing_file(path) {
+        Ok(path) => run_native_action(state, move || reveal_native(&path)),
+        Err(error) => state.notify(error),
+    }
+}
+
+pub(crate) fn open_default_file(state: &AppState, path: &std::path::Path) {
+    match openable_file(path) {
+        Ok(path) => run_native_action(state, move || open_native(path.as_os_str())),
+        Err(error) => state.notify(error),
+    }
+}
+
+pub(crate) fn open_url(state: &AppState, value: &str) {
+    match browser_url(value) {
+        Ok(url) => run_native_action(state, move || open_native(std::ffi::OsStr::new(&url))),
+        Err(error) => state.notify(error),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn open_native(value: &std::ffi::OsStr) -> Result<(), String> {
+    command_status(Command::new("/usr/bin/open").arg(value))
+}
+
+#[cfg(target_os = "macos")]
+fn reveal_native(path: &std::path::Path) -> Result<(), String> {
+    command_status(Command::new("/usr/bin/open").arg("-R").arg(path))
+}
+
+#[cfg(target_os = "macos")]
+fn command_status(command: &mut Command) -> Result<(), String> {
+    match command.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(format!("El sistema no pudo abrir el elemento: {status}")),
+        Err(error) => Err(format!("El sistema no pudo abrir el elemento: {error}")),
+    }
+}
+
+#[cfg(target_os = "windows")]
+mod shell {
+    use std::{
+        ffi::{c_void, OsStr},
+        os::windows::ffi::OsStrExt,
+        ptr,
+    };
+
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn ShellExecuteW(
+            window: *mut c_void,
+            operation: *const u16,
+            file: *const u16,
+            parameters: *const u16,
+            directory: *const u16,
+            show: i32,
+        ) -> isize;
+        fn SHParseDisplayName(
+            name: *const u16,
+            context: *mut c_void,
+            item: *mut *mut c_void,
+            attributes: u32,
+            output_attributes: *mut u32,
+        ) -> i32;
+        fn SHOpenFolderAndSelectItems(
+            item: *const c_void,
+            count: u32,
+            children: *const *const c_void,
+            flags: u32,
+        ) -> i32;
+    }
+    #[link(name = "ole32")]
+    unsafe extern "system" {
+        fn CoInitializeEx(reserved: *mut c_void, flags: u32) -> i32;
+        fn CoUninitialize();
+        fn CoTaskMemFree(memory: *mut c_void);
+    }
+
+    struct Com(bool);
+    impl Com {
+        fn initialize() -> Result<Self, String> {
+            // SAFETY: no reserved data; initialize this worker for shell calls.
+            let result = unsafe { CoInitializeEx(ptr::null_mut(), 0x2 | 0x4) };
+            if result < 0 && result != 0x80010106u32 as i32 {
+                return Err(format!("No se pudo iniciar el explorador: 0x{result:08x}"));
+            }
+            Ok(Self(result >= 0))
+        }
+    }
+    impl Drop for Com {
+        fn drop(&mut self) {
+            if self.0 {
+                // SAFETY: balances this thread's successful CoInitializeEx.
+                unsafe {
+                    CoUninitialize();
+                }
+            }
+        }
+    }
+
+    fn wide(value: &OsStr) -> Vec<u16> {
+        let units = value.encode_wide().collect::<Vec<_>>();
+        let prefix = "\\\\?\\".encode_utf16().collect::<Vec<_>>();
+        let unc = "\\\\?\\UNC\\".encode_utf16().collect::<Vec<_>>();
+        let mut result = if units.starts_with(&unc) {
+            "\\\\"
+                .encode_utf16()
+                .chain(units[unc.len()..].iter().copied())
+                .collect()
+        } else if units.starts_with(&prefix) {
+            units[prefix.len()..].to_vec()
+        } else {
+            units
+        };
+        result.push(0);
+        result
+    }
+
+    pub(super) fn open(value: &OsStr) -> Result<(), String> {
+        let _com = Com::initialize()?;
+        let value = wide(value);
+        let operation = wide(OsStr::new("open"));
+        // SAFETY: strings remain alive and nul-terminated for this call. No
+        // executable arguments are supplied; callers validate media paths/URLs.
+        let result = unsafe {
+            ShellExecuteW(
+                ptr::null_mut(),
+                operation.as_ptr(),
+                value.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                1,
+            )
+        };
+        if result > 32 {
+            Ok(())
+        } else {
+            Err(format!("El sistema no pudo abrir el elemento: {result}"))
+        }
+    }
+
+    pub(super) fn reveal(path: &std::path::Path) -> Result<(), String> {
+        let _com = Com::initialize()?;
+        let path = wide(path.as_os_str());
+        let mut item = ptr::null_mut();
+        // SAFETY: writable PIDL output and a valid nul-terminated file path.
+        let parsed = unsafe {
+            SHParseDisplayName(
+                path.as_ptr(),
+                ptr::null_mut(),
+                &mut item,
+                0,
+                ptr::null_mut(),
+            )
+        };
+        if parsed < 0 {
+            return Err(format!("No se pudo localizar el archivo: 0x{parsed:08x}"));
+        }
+        // With count zero, the absolute PIDL selects this file in its parent.
+        // SAFETY: item came from SHParseDisplayName and is freed exactly once.
+        let result = unsafe {
+            let result = SHOpenFolderAndSelectItems(item, 0, ptr::null(), 0);
+            CoTaskMemFree(item);
+            result
+        };
+        if result >= 0 {
+            Ok(())
+        } else {
+            Err(format!("No se pudo mostrar el archivo: 0x{result:08x}"))
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn open_native(value: &std::ffi::OsStr) -> Result<(), String> {
+    shell::open(value)
+}
+#[cfg(target_os = "windows")]
+fn reveal_native(path: &std::path::Path) -> Result<(), String> {
+    shell::reveal(path)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn open_native(_: &std::ffi::OsStr) -> Result<(), String> {
+    Err("Disponible en Windows y Mac.".into())
+}
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn reveal_native(_: &std::path::Path) -> Result<(), String> {
+    Err("Disponible en Windows y Mac.".into())
+}
+
+/// Shared close entry point for menus, caption buttons and OS media controls.
+pub(crate) fn request_close(state: &AppState) {
+    if !crate::updates::request_exit(state) {
+        finish_close(state);
+    }
+}
+
+/// Complete a previously deferred close without requesting another update check.
+pub(crate) fn finish_close(state: &AppState) {
+    prepare_close(state);
+    let window = dioxus::desktop::window();
+    window.set_close_behavior(dioxus::desktop::WindowCloseBehaviour::WindowCloses);
+    window.close();
+}
+
+pub(crate) fn restore_after_update(_state: &AppState) {
+    let window = dioxus::desktop::window();
+    window.set_close_behavior(dioxus::desktop::WindowCloseBehaviour::WindowCloses);
+    window.window.set_visible(true);
+    window.window.set_minimized(false);
+    window.window.set_focus();
+}
+
+#[cfg(test)]
+mod native_tests {
+    use super::*;
+
+    #[test]
+    fn browser_actions_reject_credentials_and_non_web_protocols() {
+        for value in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "https://user:password@example.com/",
+            "https://example.com/\n",
+        ] {
+            assert!(browser_url(value).is_err(), "{value}");
+        }
+        assert_eq!(
+            browser_url("https://example.com/a?q=hello%20world").unwrap(),
+            "https://example.com/a?q=hello%20world"
+        );
+    }
+
+    #[test]
+    fn external_file_actions_reject_programs_and_follow_canonical_extension() {
+        let temporary = tempfile::tempdir().unwrap();
+        let media = temporary.path().join("A song.MP3");
+        std::fs::write(&media, b"test").unwrap();
+        assert!(openable_file(&media).is_ok());
+        let executable = temporary.path().join("program.exe");
+        std::fs::write(&executable, b"test").unwrap();
+        assert!(openable_file(&executable).is_err());
+        assert!(openable_file(temporary.path()).is_err());
+        #[cfg(unix)]
+        {
+            let link = temporary.path().join("pretend.mp3");
+            std::os::unix::fs::symlink(&executable, &link).unwrap();
+            assert!(openable_file(&link).is_err());
+        }
+    }
 }

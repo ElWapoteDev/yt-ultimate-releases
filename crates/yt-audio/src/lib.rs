@@ -1,17 +1,22 @@
 //! Local audio conversion with Rust orchestration and linked codec libraries.
 //! Files are published only after successful decoding, encoding and flushing.
+mod codecs;
 mod fingerprint;
+mod metadata;
+mod streaming_flac;
 mod variants;
 pub use fingerprint::{
     compare_audio, compare_fingerprint_frames, fingerprint, AudioComparison, AudioFingerprint,
     FrameComparison,
 };
+pub use metadata::copy_metadata;
 use rodio::Source;
 use std::{
     io::Write,
     path::{Path, PathBuf},
 };
 pub use variants::{create_variant, VariantOptions, VariantReport};
+pub use yt_core::MediaMetadata;
 use yt_media::CancellationToken;
 
 #[derive(Debug, thiserror::Error)]
@@ -30,6 +35,10 @@ pub type Result<T> = std::result::Result<T, AudioError>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioFormat {
     Mp3(u16),
+    M4a(u16),
+    Aac(u16),
+    Ogg(u16),
+    Opus(u16),
     Wav,
     Flac,
 }
@@ -38,6 +47,10 @@ impl AudioFormat {
     pub fn extension(self) -> &'static str {
         match self {
             Self::Mp3(_) => "mp3",
+            Self::M4a(_) => "m4a",
+            Self::Aac(_) => "aac",
+            Self::Ogg(_) => "ogg",
+            Self::Opus(_) => "opus",
             Self::Wav => "wav",
             Self::Flac => "flac",
         }
@@ -52,13 +65,32 @@ fn check(cancel: &CancellationToken) -> Result<()> {
     }
 }
 
-/// Convert an entire local audio track. MP3 and WAV encode in bounded chunks.
-/// FLAC caps PCM input storage at 512 MiB; the encoded stream needs additional
-/// memory. The encoder borrows this PCM buffer and checks cancellation per block.
+/// Convert an entire local audio track in bounded chunks. Cancellation is
+/// checked between decode/encode blocks and before atomic publication.
 pub fn convert(
     input: &Path,
     output: &Path,
     format: AudioFormat,
+    cancel: &CancellationToken,
+    progress: impl Fn(f64),
+) -> Result<PathBuf> {
+    convert_with_metadata(
+        input,
+        output,
+        format,
+        &MediaMetadata::default(),
+        cancel,
+        progress,
+    )
+}
+
+/// Convert and preserve source tags/pictures, then apply explicit library or
+/// download metadata before publishing the completed output.
+pub fn convert_with_metadata(
+    input: &Path,
+    output: &Path,
+    format: AudioFormat,
+    metadata: &MediaMetadata,
     cancel: &CancellationToken,
     progress: impl Fn(f64),
 ) -> Result<PathBuf> {
@@ -84,6 +116,19 @@ pub fn convert(
     let mut file = tempfile::NamedTempFile::new_in(parent)?;
     let mut samples_read = 0u64;
     match format {
+        AudioFormat::M4a(bitrate)
+        | AudioFormat::Aac(bitrate)
+        | AudioFormat::Ogg(bitrate)
+        | AudioFormat::Opus(bitrate) => {
+            samples_read = codecs::encode(
+                &mut source,
+                file.as_file_mut(),
+                format,
+                bitrate,
+                cancel,
+                &progress,
+            )?;
+        }
         AudioFormat::Wav => {
             let mut wav = hound::WavWriter::new(
                 file.as_file_mut(),
@@ -163,70 +208,8 @@ pub fn convert(
             file.write_all(&encoded)?;
         }
         AudioFormat::Flac => {
-            use flacenc::{component::BitRepr, error::Verify};
-            let mut samples = Vec::<i32>::new();
-            for sample in source.by_ref() {
-                if samples.len().is_multiple_of(16384) {
-                    check(cancel)?;
-                    report_progress(samples.len() as u64, expected, &|fraction| {
-                        progress(fraction * 0.45)
-                    });
-                }
-                if samples.len() >= 128 * 1024 * 1024 {
-                    return Err(AudioError::Codec(
-                        "Este archivo supera el límite de memoria para exportar FLAC".into(),
-                    ));
-                }
-                if !sample.is_finite() {
-                    return Err(AudioError::Codec(
-                        "La fuente contiene audio inválido".into(),
-                    ));
-                }
-                samples.push(pcm24(sample));
-            }
-            samples_read = samples.len() as u64;
-            if samples.is_empty() || !samples.len().is_multiple_of(channels as usize) {
-                return Err(AudioError::Codec(
-                    "La fuente no contiene cuadros de audio completos".into(),
-                ));
-            }
-            if let Some(error) = source.decoding_error() {
-                return Err(AudioError::Codec(error));
-            }
-            check(cancel)?;
-            let config = flacenc::config::Encoder::default()
-                .into_verified()
-                .map_err(|_| AudioError::Codec("Configuración FLAC inválida".into()))?;
-            progress(0.45);
-            let signal = CancelableFlacSource {
-                samples: &samples,
-                channels: channels as usize,
-                rate: rate as usize,
-                position: 0,
-                cancel,
-                progress: &progress,
-            };
-            let mut stream =
-                flacenc::encode_with_fixed_block_size(&config, signal, config.block_size)
-                    .map_err(codec)?;
-            // Cancellation ends source reads gracefully so flacenc's parallel
-            // workers can drain and join; the partial stream is never written.
-            check(cancel)?;
-            drop(samples);
-            // RFC 9639 §8.2: the fixed stream's minimum excludes the short final
-            // frame. flacenc 0.5.1 includes it when updating frame statistics.
-            stream
-                .stream_info_mut()
-                .set_block_sizes(config.block_size, config.block_size)
-                .map_err(codec)?;
-            let mut sink = flacenc::bitsink::ByteSink::new();
-            stream.write(&mut sink).map_err(codec)?;
-            check(cancel)?;
-            drop(stream);
-            for chunk in sink.as_slice().chunks(1024 * 1024) {
-                check(cancel)?;
-                file.write_all(chunk)?;
-            }
+            samples_read =
+                streaming_flac::encode(&mut source, file.as_file_mut(), cancel, &progress)?;
         }
     }
     if samples_read == 0 {
@@ -238,6 +221,8 @@ pub fn convert(
         return Err(AudioError::Codec(error));
     }
     check(cancel)?;
+    metadata::write_metadata(input, file.as_file_mut(), format, metadata, cancel)?;
+    check(cancel)?;
     file.as_file().sync_all()?;
     file.persist_noclobber(output).map_err(|e| {
         if e.error.kind() == std::io::ErrorKind::AlreadyExists {
@@ -248,57 +233,6 @@ pub fn convert(
     })?;
     progress(1.0);
     Ok(output.to_owned())
-}
-
-/// Returning end-of-stream on cancellation is deliberate: flacenc 0.5's
-/// parallel feeder does not join its workers when Source returns an error.
-/// The caller always checks the token before publishing this truncated stream.
-struct CancelableFlacSource<'a> {
-    samples: &'a [i32],
-    channels: usize,
-    rate: usize,
-    position: usize,
-    cancel: &'a CancellationToken,
-    progress: &'a dyn Fn(f64),
-}
-
-impl flacenc::source::Source for CancelableFlacSource<'_> {
-    fn channels(&self) -> usize {
-        self.channels
-    }
-
-    fn bits_per_sample(&self) -> usize {
-        24
-    }
-
-    fn sample_rate(&self) -> usize {
-        self.rate
-    }
-
-    fn len_hint(&self) -> Option<usize> {
-        Some(self.samples.len() / self.channels)
-    }
-
-    fn read_samples<F: flacenc::source::Fill>(
-        &mut self,
-        block_size: usize,
-        destination: &mut F,
-    ) -> std::result::Result<usize, flacenc::error::SourceError> {
-        if self.cancel.is_cancelled() {
-            return Ok(0);
-        }
-        let end = self
-            .position
-            .saturating_add(block_size.saturating_mul(self.channels))
-            .min(self.samples.len());
-        let samples = &self.samples[self.position..end];
-        destination.fill_interleaved(samples)?;
-        self.position = end;
-        if !samples.is_empty() {
-            (self.progress)(0.45 + 0.45 * end as f64 / self.samples.len() as f64);
-        }
-        Ok(samples.len() / self.channels)
-    }
 }
 
 fn pcm24(sample: f32) -> i32 {
@@ -328,7 +262,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let encoding_started = std::cell::Cell::new(false);
         let result = convert(&input, &output, AudioFormat::Flac, &cancel, |fraction| {
-            // Decoding reports < .45; this is the first actual encoder block.
+            // Cancel after several encoded blocks, before final publication.
             if fraction > 0.45 && fraction < 0.9 {
                 encoding_started.set(true);
                 cancel.cancel();
@@ -373,7 +307,15 @@ mod tests {
         let input = dir.path().join("source.wav");
         wave(&input, 2);
         let original = std::fs::read(&input).unwrap();
-        for format in [AudioFormat::Mp3(192), AudioFormat::Wav, AudioFormat::Flac] {
+        for format in [
+            AudioFormat::Mp3(192),
+            AudioFormat::Wav,
+            AudioFormat::Flac,
+            AudioFormat::M4a(192),
+            AudioFormat::Aac(192),
+            AudioFormat::Ogg(192),
+            AudioFormat::Opus(192),
+        ] {
             let output = dir.path().join(format!("result.{}", format.extension()));
             convert(&input, &output, format, &CancellationToken::new(), |_| {}).unwrap();
             let decoded = yt_media::decode_file(&output)
@@ -409,5 +351,110 @@ mod tests {
         )
         .unwrap();
         assert_eq!(yt_media::decode_file(&output).unwrap().channels(), 1);
+    }
+
+    #[test]
+    fn extra_encoders_cancel_midstream_without_partial_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("source.wav");
+        wave(&input, 2);
+        for format in [
+            AudioFormat::M4a(192),
+            AudioFormat::Aac(192),
+            AudioFormat::Ogg(192),
+            AudioFormat::Opus(192),
+        ] {
+            let output = dir.path().join(format!("result.{}", format.extension()));
+            let token = CancellationToken::new();
+            let result = convert(&input, &output, format, &token, |p| {
+                if p > 0.1 {
+                    token.cancel()
+                }
+            });
+            assert!(
+                matches!(result, Err(AudioError::Cancelled)),
+                "{format:?}: {result:?}"
+            );
+            assert!(!output.exists());
+            assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        }
+    }
+
+    #[test]
+    fn extra_encoders_preserve_pitch_channels_and_non_aligned_duration() {
+        let dir = tempfile::tempdir().unwrap();
+        for channels in [1u16, 2] {
+            let input = dir.path().join(format!("source-{channels}.wav"));
+            let rate = 44117;
+            let frames = 44319;
+            let mut writer = hound::WavWriter::create(
+                &input,
+                hound::WavSpec {
+                    channels,
+                    sample_rate: rate,
+                    bits_per_sample: 16,
+                    sample_format: hound::SampleFormat::Int,
+                },
+            )
+            .unwrap();
+            for frame in 0..frames {
+                for channel in 0..channels {
+                    let frequency = if channel == 0 { 440.0 } else { 660.0 };
+                    writer
+                        .write_sample(
+                            (8000.0
+                                * (frame as f64 * frequency * std::f64::consts::TAU / rate as f64)
+                                    .sin()) as i16,
+                        )
+                        .unwrap();
+                }
+            }
+            writer.finalize().unwrap();
+            for format in [
+                AudioFormat::M4a(320),
+                AudioFormat::Aac(320),
+                AudioFormat::Ogg(320),
+                AudioFormat::Opus(320),
+            ] {
+                let output = dir
+                    .path()
+                    .join(format!("output-{channels}.{}", format.extension()));
+                convert(&input, &output, format, &CancellationToken::new(), |_| {})
+                    .unwrap_or_else(|e| panic!("{format:?}: {e}"));
+                let decoded = yt_media::decode_file(&output).unwrap();
+                assert_eq!(decoded.channels(), channels);
+                let output_rate = decoded.sample_rate();
+                let samples = decoded.collect::<Vec<_>>();
+                let duration = samples.len() as f64 / channels as f64 / output_rate as f64;
+                assert!(
+                    (duration - frames as f64 / rate as f64).abs() < 0.065,
+                    "{format:?} duration {duration}"
+                );
+                for channel in 0..channels as usize {
+                    let signal = samples
+                        .iter()
+                        .skip(channel)
+                        .step_by(channels as usize)
+                        .copied()
+                        .skip(output_rate as usize / 5)
+                        .take(output_rate as usize / 2)
+                        .collect::<Vec<_>>();
+                    let crossings = signal
+                        .windows(2)
+                        .filter(|v| v[0] <= 0.0 && v[1] > 0.0)
+                        .count();
+                    let frequency = crossings as f64 / (signal.len() as f64 / output_rate as f64);
+                    let expected = if channel == 0 { 440.0 } else { 660.0 };
+                    assert!(
+                        (frequency - expected).abs() < 5.0,
+                        "{format:?} frequency {frequency}"
+                    );
+                    let rms = (signal.iter().map(|v| (*v as f64).powi(2)).sum::<f64>()
+                        / signal.len() as f64)
+                        .sqrt();
+                    assert!((0.13..0.21).contains(&rms), "{format:?} rms {rms}");
+                }
+            }
+        }
     }
 }

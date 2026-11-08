@@ -1,22 +1,24 @@
 # YT Ultimate — escritorio Rust
 
-YT Ultimate `5.0.0` es una reescritura para **macOS y Windows** que conserva la base visual de la aplicación anterior. Los componentes de interfaz, el estado y los servicios de la aplicación están escritos en Rust. Android e iPhone quedan aplazados. Es una vista previa funcional: todavía faltan equivalencia visual completa, algunas funciones históricas y validación del instalador en Windows real.
+YT Ultimate se está reescribiendo para **macOS y Windows**, conservando la base visual de Electron. Los componentes, el estado y los servicios están escritos en Rust. Android e iPhone quedan aplazados. La versión **5.0.0 está publicada como prerelease**; este código corresponde al desarrollo de **5.0.1** e incorpora funciones posteriores que todavía no forman parte de aquellos instaladores.
 
-La ejecución nueva no utiliza Electron, React, Node.js ni el servicio Python anterior. Dioxus representa la interfaz con WKWebView en Mac y WebView2 en Windows, reutiliza el CSS original e incorpora su propio puente JavaScript. También se enlazan bibliotecas nativas: SQLite, QuickJS, libopus, LAME y SoundTouch; la edición completa añade SoXR y LibTorch. La lógica propia es Rust, pero el WebView y todas esas dependencias no están implementados exclusivamente en Rust.
+[Descargar la prerelease 5.0.0](https://github.com/ElWapoteDev/yt-ultimate-releases/releases/tag/v5.0.0). Incluye los instaladores Full de Mac ARM64 y Windows x64, sus comprobaciones SHA-256 y las fuentes correspondientes. No se afirma paridad visual completa ni preparación para producción.
 
-## Funciones disponibles
+La ejecución nueva no utiliza Electron, React, Node.js ni el servicio Python anterior. Dioxus utiliza WKWebView en Mac y WebView2 en Windows, reutiliza el CSS original e incorpora su puente JavaScript. Un adaptador pequeño conecta el elemento de vídeo del WebView con el estado Rust, incluidos PiP y pantalla completa. También se enlazan bibliotecas nativas como SQLite, QuickJS, libopus, LAME y SoundTouch; la edición completa añade SoXR y LibTorch. «Rust» describe la implementación de la aplicación, no que el WebView, ese adaptador y todas las dependencias estén escritos exclusivamente en Rust.
 
-- Biblioteca SQLite, importación por copia o referencia, carpetas, M3U/M3U8, favoritos y playlists ordenadas. Quitar una canción conserva su archivo y evita que el escaneo la añada de nuevo; una importación explícita permite recuperarla.
-- Audio local con play/pausa, seek, volumen, velocidad, cola, aleatorio, repetición, historial, restauración en pausa y temporizador. Vídeo local con controles del WebView.
-- Búsqueda y playlists públicas de YouTube, descargas MP3 a 128/192/256/320 kbps, vídeo progresivo, concurrencia limitada, cancelación, reintentos e historial persistente. La reproducción desde Buscar empieza al terminar la descarga.
-- Exportación MP3, WAV de 24 bits y FLAC de 24 bits; variaciones de audio, versión ardilla y comparación local de muestras y huellas Chromaprint.
-- Edición completa `native-stems`: separación vocal con BS-RoFormer/LibTorch y procesamiento CALIDAD con remuestreo SoXR, EQ, mezcla, ajuste de pico y auditoría del FLAC resultante.
-- Plugins Rust/WebAssembly API v2 con activación explícita y ejecución limitada. Los plugins Python anteriores se conservan y se muestran como incompatibles.
-- Comprobación de nuevas versiones, descarga verificada por SHA-256 y apertura del instalador mediante acciones separadas del usuario. Conserva la edición base o completa.
+## Funciones del código actual
 
-No se afirma paridad total con Electron 4.5.1. Siguen pendientes el muxing de pistas DASH, streaming antes de terminar la descarga, equivalencia de controles de vídeo/PiP, extracción de carátulas incrustadas, conservación completa de etiquetas al exportar y algunas integraciones de escritorio y plugins. [Estado de la migración](docs/RUST_MIGRATION.md) detalla implementación, límites y pruebas.
+- Biblioteca SQLite, importación por copia o referencia, carpetas, favoritos y playlists ordenadas. Importación M3U/M3U8 y exportación M3U8 con rutas reproducibles; quitar una pista conserva el archivo y evita que el escaneo la añada de nuevo.
+- Carátulas incrustadas extraídas a caché validada. Exportación MP3, WAV24 y FLAC24 con etiquetas y carátulas, incluyendo las nuevas descargas y resultados procesados.
+- Audio local y streaming de YouTube antes de completar la descarga; seek, volumen, velocidad conservando tono, cola, aleatorio, repetición, historial, restauración en pausa y temporizador.
+- Búsqueda y playlists públicas de YouTube; descargas MP3 a 128/192/256/320 kbps y vídeo MP4 con selección de resolución, unión DASH sin recodificar, pausas, reanudación tras reiniciar, reintentos y concurrencia limitada.
+- Subtítulos WebVTT junto al vídeo, plantillas de nombre y cookies Netscape elegidas explícitamente. El acceso privado depende del servicio y no se extraen cookies del navegador automáticamente.
+- Biblioteca con filtros/lista/cuadrícula e información de audio; playlists con portadas, aleatorio, reordenación y borrado confirmado; Stems con selector de fuente, formato, progreso y guardado de resultados; diálogo ardilla con presets y controles de tono, velocidad y brillo.
+- Edición completa `native-stems`: BS-RoFormer/LibTorch para voz e instrumental; CALIDAD con SoXR, EQ, mezcla, ajuste de pico y auditoría del FLAC. Variaciones y huellas Chromaprint funcionan también en la edición base.
+- Plugins Rust/WebAssembly API v2 con permisos explícitos, comandos, eventos, estado persistente y acceso acotado a biblioteca. Incluye ejemplos y creación de proyectos Rust/Wasm. Los plugins Python anteriores se conservan sin ejecutarse.
+- Actualizador con comprobación de versión, arquitectura, edición y SHA-256. Descargar y abrir el instalador son acciones separadas del usuario.
 
-La última suite completa aprobó 85 pruebas y Clippy sin advertencias. En el paquete Mac completo se probaron desde la interfaz exportación FLAC, plugins, consulta de versiones, CALIDAD y descarga/conversión MP3, además de los flujos básicos de biblioteca y reproducción.
+Las funciones añadidas después de 5.0.0 se detallan en [Estado de la migración](docs/RUST_MIGRATION.md), junto con sus pruebas y límites. Las pruebas del código nuevo incluyen metadatos, covers, M3U8, plugins, streaming, reanudación, muxing y controles de interfaz. La validación integral y el empaquetado final de 5.0.1 están pendientes de cerrar.
 
 ## Ejecutar desde el código
 
@@ -26,7 +28,7 @@ Se necesita Rust estable 1.89 o posterior, CMake y un compilador C/C++. En Mac: 
 cargo run --locked -p yt-app --bin yt-ultimate
 ```
 
-`start_app.command` y `start_app.ps1` arrancan esta versión Rust. La ruta nueva no necesita npm ni un intérprete Python. La edición completa requiere LibTorch y el modelo previamente exportado; véase [Empaquetado Rust](docs/RUST_PACKAGING.md).
+`start_app.command` y `start_app.ps1` arrancan esta versión Rust. La ruta nueva no necesita npm ni un intérprete Python. La edición completa requiere LibTorch y el modelo preparado; véase [Empaquetado Rust](docs/RUST_PACKAGING.md).
 
 Para usar un perfil de prueba separado:
 
@@ -45,9 +47,9 @@ cargo run --locked -p yt-app --bin yt-ultimate
 
 ## Datos existentes
 
-El perfil predeterminado coincide con Electron: `~/Library/Application Support/YT Ultimate` en Mac y `%APPDATA%/YT Ultimate` en Windows. La biblioteca usa `Downloads/YT_Ultimate` si existe; en caso contrario, `Music/YT Ultimate`. `YTU_DATA_DIR` y `YTU_LIBRARY_DIR` permiten seleccionar otras carpetas.
+El perfil coincide con Electron: `~/Library/Application Support/YT Ultimate` en Mac y `%APPDATA%/YT Ultimate` en Windows. La biblioteca usa `Downloads/YT_Ultimate` si existe; en caso contrario, `Music/YT Ultimate`. `YTU_DATA_DIR` y `YTU_LIBRARY_DIR` permiten elegir otras carpetas.
 
-Antes de ampliar una base anterior compatible con esquema v4, se crea `pre-rust-<id>.sqlite3` mediante la API de backup SQLite, incluidos los datos confirmados del WAL. Se conservan identificadores, playlists, ajustes desconocidos y registros de plugins. El esquema Rust 2 añade exclusiones de escaneo; guardar preferencias no sobrescribe la reproducción actual. Los esquemas antiguos no compatibles o futuros se rechazan antes de migrar. Cerrar la aplicación anterior antes de usar el mismo perfil en Rust.
+Antes de ampliar una base compatible con esquema v4, se crea `pre-rust-<id>.sqlite3` mediante la API de backup SQLite, incluidos los datos confirmados del WAL. Se conservan identificadores, playlists, preferencias desconocidas y registros de plugins. El esquema Rust 2 añade exclusiones de escaneo; guardar preferencias no sobrescribe la reproducción actual. Los esquemas antiguos incompatibles o futuros se rechazan antes de migrar. Cerrar la aplicación anterior antes de usar el mismo perfil en Rust.
 
 ## Verificar y empaquetar
 
@@ -57,15 +59,11 @@ cargo install cargo-packager --version 0.11.8 --locked --root target/packager-to
 cargo run --locked -p xtask -- package
 ```
 
-`check` ejecuta formato, pruebas y Clippy. `package` genera `.app`/`.dmg` en Mac o instaladores Windows según el destino. Los resultados quedan en `target/packages/<destino>/5.0.0/`; la edición completa usa `full/` y nombres de archivo distintos. Cada generación incluye `SHA256SUMS`.
+`check` ejecuta formato, pruebas y Clippy. `package` genera `.app`/`.dmg` en Mac o instaladores Windows según el destino. Los resultados quedan en `target/packages/<destino>/<versión>/`; la edición completa usa `full/` y nombres distintos. Cada generación incluye `SHA256SUMS`.
 
-Los entregables de esta sesión son únicamente los paquetes **Full** de Mac ARM64 y Windows x64. Los paquetes base generados antes se trasladaron a `target/intermediate-packages/`, identificados con `NO_DISTRIBUIR.md`; no representan la entrega final ni deben publicarse como tal. El modo base sigue disponible para compilaciones futuras.
+Los instaladores publicados son **Full 5.0.0**: `YT Ultimate_5.0.0_aarch64_full.dmg` y `yt-ultimate_5.0.0_x64_full-setup.exe`. El primero requiere macOS 14; la configuración base declara macOS 12. El NSIS incluye el bootstrapper oficial de WebView2 y lo instala, con conexión a Internet, únicamente si falta. El modelo y las demás dependencias nativas ya están incluidos.
 
-Los instaladores finales verificados son `YT Ultimate_5.0.0_aarch64_full.dmg` y `yt-ultimate_5.0.0_x64_full-setup.exe`, dentro de `target/packages/<destino>/5.0.0/full/`, cada uno con su manifiesto SHA-256.
-
-Mac Full requiere macOS 14; la configuración base declara macOS 12. El NSIS Full de Windows incluye el instalador oficial Evergreen de WebView2: si falta el runtime, lo instala antes de continuar, con conexión a Internet. El modelo y las demás bibliotecas nativas se incluyen en el paquete.
-
-Intel está definido en CI y pendiente de ejecución. Compilar Windows desde Mac no sustituye probar su instalación y ejecución en Windows. Los paquetes locales no tienen firma de distribución ni notarización. No se han publicado releases ni actualizado instalaciones anteriores automáticamente. [Empaquetado Rust](docs/RUST_PACKAGING.md) mantiene los comandos, requisitos y verificaciones de los artefactos.
+El instalador Windows publicado pasó instalación silenciosa, arranque con ventana/WebView2, asociaciones y desinstalación en Windows Server 2022 de CI. Eso no acredita pruebas manuales de audio ni todos los flujos de Windows 10/11. Mac ARM64 pasó arranque y flujos de interfaz. La edición base compiló en CI para Mac Intel, Mac ARM64 y Windows; Mac Intel aún no tiene ejecución instalada ni edición Full validada. El ensayo de actualización desde Electron sigue pendiente. Los paquetes no tienen firma de distribución ni notarización. Las compilaciones base intermedias están identificadas en `target/intermediate-packages/` y no son los instaladores publicados.
 
 ## Código y versión anterior
 
@@ -73,16 +71,16 @@ Intel está definido en CI y pendiente de ejecución. Compilar Windows desde Mac
 crates/
   yt-app/       Interfaz Dioxus, estado y escritorio
   yt-core/      Biblioteca, playlists, ajustes e historial SQLite
-  yt-media/     Reproducción, YouTube, descargas y separación neuronal
-  yt-audio/     Conversión, variaciones y huellas de audio
+  yt-media/     Reproducción, YouTube, transporte, muxing y separación
+  yt-audio/     Conversión, metadatos, variaciones y huellas de audio
   yt-quality/   DSP y auditorías de CALIDAD
-  yt-plugins/   Intérprete Wasm y Plugin API v2
+  yt-plugins/   Intérprete Wasm, permisos y Plugin API v2
   yt-updater/   Actualizaciones verificadas por edición
   xtask/        Verificación y empaquetado
-packaging/      Iconos, asociaciones y configuración de instaladores
+packaging/      Iconos, asociaciones, instaladores y ensayos CI
 docs/          Migración y documentación técnica
 frontend/      Electron/React anterior conservado
 backend/       Python anterior conservado
 ```
 
-Las fuentes, pruebas y paquetes anteriores se conservan. El README original está íntegro en [Documentación de Electron 4.5.1](docs/LEGACY_ELECTRON.md); sus comandos y los documentos históricos describen esa versión. Esta carpeta no tenía repositorio Git al iniciar la migración; conservar fuentes no sustituye un historial de versiones ni una copia de seguridad.
+Las fuentes, pruebas y paquetes anteriores se conservan. El README original está íntegro en [Documentación de Electron 4.5.1](docs/LEGACY_ELECTRON.md); sus comandos y los documentos históricos describen esa versión, no el ejecutable Rust.

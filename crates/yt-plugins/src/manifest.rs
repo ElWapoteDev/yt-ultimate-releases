@@ -46,6 +46,10 @@ pub struct PluginManifest {
     #[serde(default = "default_module")]
     pub module: String,
     pub commands: Vec<PluginCommand>,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    #[serde(default)]
+    pub events: Vec<String>,
     #[serde(default = "object_schema")]
     pub config_schema: Value,
     #[serde(default = "empty_object")]
@@ -65,6 +69,9 @@ pub struct PluginInfo {
     pub commands: Vec<PluginCommand>,
     pub config_schema: Value,
     pub config: Value,
+    pub permissions: Vec<String>,
+    pub granted_permissions: Vec<String>,
+    pub events: Vec<String>,
 }
 
 pub(crate) fn valid_id(id: &str) -> bool {
@@ -80,6 +87,19 @@ pub(crate) fn valid_id(id: &str) -> bool {
 impl PluginManifest {
     pub(crate) fn validate(&self, directory: &str) -> Result<()> {
         let bad = |message: &str| PluginError::Invalid(message.into());
+        let mut permissions = HashSet::new();
+        if self.permissions.iter().any(|permission| {
+            !["library.read", "library.write", "state", "events"].contains(&permission.as_str())
+                || !permissions.insert(permission)
+        }) {
+            return Err(bad("Invalid or duplicate plugin permission"));
+        }
+        if self.events.len() > 64
+            || self.events.iter().any(|event| !valid_id(event))
+            || (!self.events.is_empty() && !self.permissions.iter().any(|p| p == "events"))
+        {
+            return Err(bad("Events require the events permission and valid names"));
+        }
         if self.manifest_version != 2 || self.api_version != 2 {
             return Err(bad("Only WebAssembly Plugin API v2 is supported"));
         }

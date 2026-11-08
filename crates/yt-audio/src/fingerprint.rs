@@ -9,6 +9,7 @@ use yt_media::CancellationToken;
 #[derive(Debug, Clone, Serialize)]
 pub struct AudioFingerprint {
     pub pcm_sha256: String,
+    pub fingerprint_sha256: String,
     pub sample_rate: u32,
     pub channels: u16,
     pub frames: Vec<u32>,
@@ -63,11 +64,17 @@ pub fn fingerprint(path: &Path, cancel: &CancellationToken) -> Result<AudioFinge
         return Err(AudioError::Codec("La fuente no contiene audio".into()));
     }
     printer.finish();
+    let frames = printer.fingerprint().to_vec();
+    let mut acoustic_hash = Sha256::new();
+    for frame in &frames {
+        acoustic_hash.update(frame.to_le_bytes());
+    }
     Ok(AudioFingerprint {
         pcm_sha256: format!("{:x}", hash.finalize()),
+        fingerprint_sha256: format!("{:x}", acoustic_hash.finalize()),
         sample_rate: rate,
         channels,
-        frames: printer.fingerprint().to_vec(),
+        frames,
     })
 }
 
@@ -82,6 +89,10 @@ pub struct Alignment {
 #[derive(Debug, Clone, Serialize)]
 pub struct FrameComparison {
     pub metric: &'static str,
+    pub bits_per_frame: usize,
+    pub max_offset_frames: i32,
+    pub min_overlap_fraction: f64,
+    pub offset_convention: &'static str,
     pub aligned: Alignment,
     pub best_offset: Alignment,
     pub min_compared_frames: usize,
@@ -139,6 +150,10 @@ pub fn compare_fingerprint_frames(source: &[u32], output: &[u32]) -> Result<Fram
     }
     Ok(FrameComparison {
         metric: "chromaprint_bit_agreement_v1",
+        bits_per_frame: 32,
+        max_offset_frames: 16,
+        min_overlap_fraction: 0.8,
+        offset_convention: "output_index_minus_source_index",
         aligned,
         best_offset: best,
         min_compared_frames: minimum,

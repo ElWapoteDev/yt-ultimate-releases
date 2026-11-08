@@ -54,7 +54,7 @@ pub struct DecodedAudio {
 }
 
 impl DecodedAudio {
-    fn open(source: Box<dyn MediaSource>, extension: Option<&str>) -> Result<Self> {
+    pub(crate) fn open(source: Box<dyn MediaSource>, extension: Option<&str>) -> Result<Self> {
         let mut hint = Hint::new();
         if let Some(extension) = extension {
             hint.with_extension(extension);

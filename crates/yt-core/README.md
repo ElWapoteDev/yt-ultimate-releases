@@ -36,6 +36,22 @@ profile once per application process.
 - Preference saves preserve independently updated runtime records, including
   the current playback queue and position, in the reserved `rust.` namespace.
 
+- Embedded front-cover extraction into a validated, hash-addressed Artwork cache;
+  old entries acquire embedded artwork on rescan or metadata export. Images are
+  decoded with size/dimension/allocation limits and SVG is rejected.
+- `media_metadata(id)` exposes library overrides and a validated local artwork
+  path for `yt-audio`; `cache_artwork(bytes)` and `set_track_artwork(id, bytes)`
+  support downloaded covers without trusting a caller-supplied cache filename.
+- `export_playlist_m3u8(id, destination)` writes UTF-8 extended M3U in stored
+  order, using relative paths beneath the destination directory and absolute
+  paths elsewhere. Missing/unrepresentable entries are reported, and an
+  existing export is never overwritten.
+- `clean_temporary_files()` removes only recognized, unreferenced partial
+  Artwork/Updates files older than 24 hours. It refuses active jobs and preserves
+  source media, final covers, installers, symlinks and unknown files.
+- Playback state includes optional remote queue records without adding them to
+  library tables. Legacy playback JSON without `remote_tracks` remains readable.
+
 ## Scope boundaries
 
 This crate supplies data services, not the media player, download extractor,
@@ -49,8 +65,8 @@ metadata falls back to the filename and an unknown duration. Remote URLs inside
 M3U files are reported explicitly and are not downloaded as an import side
 effect. M3U imports create a playlist named after the file, preserving entry order
 and merging repeated imports without duplicate tracks. Existing playlist names
-use SQLite's case-insensitive matching. Embedded album artwork extraction and
-reference files moved to a new location are not implemented here.
+use SQLite's case-insensitive matching. Reference files moved to a new location
+require explicit reimport; original files are never relocated by a scan.
 
 ## Verification
 

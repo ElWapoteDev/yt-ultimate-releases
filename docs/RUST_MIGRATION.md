@@ -1,104 +1,98 @@
 # Estado de la migración a Rust
 
-La versión `5.0.0` sustituye Electron, React y el servicio Python por una aplicación de escritorio cuya interfaz y lógica propia están escritas en Rust. El alcance es **macOS y Windows**; Android e iPhone están aplazados. Es una vista previa funcional, sin declaración de paridad total, equivalencia visual exacta ni preparación para producción.
+El alcance es **macOS y Windows**; Android e iPhone están aplazados. La [prerelease 5.0.0](https://github.com/ElWapoteDev/yt-ultimate-releases/releases/tag/v5.0.0) ya está publicada y conserva su snapshot de fuentes e instaladores. El workspace actual es **5.0.1 en desarrollo**: las ampliaciones siguientes aún no están en los instaladores de 5.0.0. No se declara paridad total, equivalencia visual exacta ni preparación para producción.
 
 ## Arquitectura
 
-| Capa | Implementación nueva |
+| Capa | Implementación |
 | --- | --- |
-| Ventana e interfaz | Dioxus Desktop, componentes RSX y señales Rust; Tao/Muda para escritorio |
-| Apariencia | CSS original incluido en el binario, adaptaciones y SVG desde Rust |
-| Biblioteca y datos | `yt-core`, Rusqlite y SQLite incluido, en el mismo proceso |
-| Audio y YouTube | `yt-media`, Rodio/Symphonia, libopus, InnerTube y transporte HTTP |
-| Conversión y variaciones | `yt-audio`, LAME, FLAC, SoundTouch y Chromaprint |
-| Separación y CALIDAD | BS-RoFormer mediante Rust/LibTorch; DSP Rust y SoXR en `yt-quality` |
-| Extensiones y versiones | `yt-plugins` con Wasmi; `yt-updater` con validación de publicación e integridad |
-| Distribución | `xtask` Rust y cargo-packager |
+| Interfaz y estado | Dioxus Desktop, componentes RSX y señales Rust; CSS original y SVG desde Rust |
+| Escritorio | Tao/Muda, selectores nativos, asociaciones, recientes y arrastre de archivos |
+| Datos | `yt-core`, Rusqlite y SQLite incluido, dentro del mismo proceso |
+| Audio y YouTube | `yt-media`, Rodio/Symphonia, libopus, SoundTouch, InnerTube, HTTP y muxing MP4 Rust |
+| Exportación | `yt-audio`, LAME, FDK-AAC, Vorbis/Opus, FLAC por bloques, Lofty, SoundTouch y Chromaprint |
+| Separación y CALIDAD | BS-RoFormer con LibTorch; DSP Rust y SoXR en `yt-quality` |
+| Plugins y versiones | `yt-plugins` con Wasmi y permisos acotados; `yt-updater` con validación de integridad |
+| Distribución | `xtask` Rust, cargo-packager y pruebas de instaladores en CI |
 
-La nueva aplicación no arranca Python, Node.js, FFmpeg ni el backend HTTP anterior. Dioxus utiliza WKWebView en Mac y WebView2 en Windows, con un puente JavaScript interno para actualizar el DOM. Conserva CSS y enlaza dependencias C/C++, entre ellas SQLite, QuickJS, libopus, LAME, SoundTouch, SoXR y LibTorch según la edición. «Reescrita en Rust» describe el código propio; no significa que el motor visual y todas sus dependencias sean exclusivamente Rust.
+La aplicación no arranca Python, Node.js, FFmpeg ni el backend HTTP anterior. Dioxus utiliza WKWebView/WebView2 y un puente JavaScript para actualizar el DOM. Además, adaptadores JavaScript pequeños controlan vídeo/PiP y primitivas DOM de selección, edición y teclado; validación, estado, persistencia y cola permanecen en Rust. Se enlazan bibliotecas C/C++, incluidas SQLite, QuickJS, libopus, libvorbis, FDK-AAC, LAME, SoundTouch y, según edición, SoXR/LibTorch. «Rust» describe la reescritura de la aplicación, no que todas sus dependencias o ese adaptador sean exclusivamente Rust.
 
-## Funciones y límites actuales
+## Funciones del código 5.0.1 y límites
 
-| Función | Implementación comprobable | Límite restante |
+| Área | Implementado | Límite restante |
 | --- | --- | --- |
-| Inicio, navegación y aspecto | Inicio, Buscar, Canciones, Playlists, Stems, Descargas, Ajustes y reproductor en Rust, reutilizando estilos originales | Falta comparar todos los estados y pantallas; no se declara equivalencia píxel a píxel |
-| Biblioteca | Búsqueda, filtros audio/vídeo, favoritos, lista/cuadrícula, copia o referencia, importación de carpetas y deduplicación | Bibliotecas grandes y archivos con metadatos inusuales necesitan más pruebas de interfaz |
-| Escaneo y retirada | Escaneo opcional al inicio; retirar elimina el registro y conserva el archivo; una exclusión persistida evita su reimportación automática | Recuperarlo requiere importación explícita; los archivos externos movidos no se localizan automáticamente |
-| M3U/M3U8 | Entradas locales relativas/absolutas; crea o combina una playlist, conserva orden y evita miembros duplicados; coincide por nombre con SQLite NOCASE | Las URL remotas se notifican como no importadas; no se descargan implícitamente |
-| Metadatos y carátulas | Lofty, datos anteriores, carátulas locales validadas, sidecars y URL externas | Extracción de carátulas incrustadas y conservación completa de etiquetas/carátulas en exportaciones pendientes; algunos vídeos usan nombre y duración desconocida |
-| Playlists locales | Crear, renombrar, eliminar, añadir/quitar y reordenar pistas | Arrastrar para reordenar y exportación completa de playlists pendientes |
-| Reproducción de audio | Play/pausa, seek, volumen, velocidad, anterior/siguiente, cola editable, aleatorio, repetición y temporizador | Cambiar velocidad también cambia el tono; no se afirma equivalencia de cada comportamiento histórico |
-| Historial y restauración | Pista actual, posición, cola, volumen, velocidad, aleatorio y repetición persistentes; restaura en pausa y filtra archivos ausentes | La validación automatizada no sustituye probar todos los cierres y dispositivos de audio |
-| Buscar y reproducir YouTube | Búsqueda, metadatos y resolución reales; descarga completa antes de reproducir | Sin streaming previo a completar la descarga; algunos vídeos, regiones o restricciones del servicio pueden fallar |
-| Descargas MP3 | Descarga fuente, conversión a 128/192/256/320 kbps, progreso, cancelación, concurrencia de 1–8 y publicación sin sobrescritura | Sin reanudación de parciales entre ejecuciones; conservación completa de metadatos exportados pendiente |
-| Playlists públicas YouTube | Consulta con continuaciones, hasta 500 entradas reproducibles; informa entradas no disponibles y truncamiento. Descarga por lotes y conserva el orden de los elementos conocidos al completar | Máximo de 20 páginas y 120 segundos por consulta; no se garantiza acceso a listas privadas ni listas completas por encima del límite |
-| Reintentos y trabajos | Reintentos automáticos acotados en errores de transporte, reintento manual, trabajos SQLite e interrupción reconocida al reiniciar | Subtítulos, plantillas y toda la selección histórica de calidad no están portados; conservar un ajuste no implica aplicarlo |
-| Vídeo descargado/local | MP4 progresivo con audio y vídeo juntos; panel con controles del WebView, protocolo local restringido y cierre por temporizador | Sin muxing DASH; resolución limitada al stream progresivo. Códecs del sistema, posición de vídeo no persistida y controles/PiP sin equivalencia completa |
-| Conversión local | MP3 con LAME, WAV PCM24 y FLAC24; mono/estéreo, cancelación y destino sin sobrescritura | FLAC limita PCM de entrada a 512 MiB, además de memoria del stream codificado; no convierte todos los canales/contenedores |
-| Variaciones y ardilla | Tono y tempo con SoundTouch, EQ Rust, normalización por ganancia constante y exportación FLAC24 | Algoritmos nuevos no son bit a bit iguales a FFmpeg histórico; comparación local no equivale a probar servicios de reconocimiento |
-| Separación vocal | Edición completa `native-stems`: modelo BS-RoFormer exportado a TorchScript, inferencia CPU real con ventanas solapadas, voces e instrumental | Salida WAV estéreo a 44,1 kHz; no incluye todos los modelos ni opciones anteriores |
-| CALIDAD | Preparación SoXR HQ, separación, EQ instrumental, mezcla con voz preservada, remapeo compartido, estimación de pico y FLAC24 verificado | El estimador de pico no es una certificación IEC; no se promete resultado neural idéntico ni evasión de identificación |
-| Huellas | Hash del PCM decodificado y Chromaprint 2; comparación alineada y por desplazamiento, con reporte de muestras cambiadas | La huella usa los primeros 120 segundos; `recognition_tested=false`. No consulta servicios de reconocimiento |
-| Menús, archivos y escritorio | Menús Muda, atajos, selectores, apertura de carpetas, argumentos/eventos de archivos, asociaciones y drop de archivos | Falta validar todos los flujos instalados en ambos sistemas, drag-out, recientes, Jump List y todos los contextuales |
-| Ajustes | Bitrate MP3, copia/referencia, escaneo, herramientas avanzadas, plugins y actualizaciones; conserva preferencias históricas | La pantalla no expone todas las opciones anteriores; guardar ajustes preserva los registros runtime actuales |
-| Plugins | Wasmi, API v2 de comandos, activación explícita, configuración validada y ejemplo Rust/Wasm real | Sin filesystem/red, eventos de fondo, inyección de UI o mutación de biblioteca. Python API v1 se conserva sin ejecutarlo |
-| Actualizaciones | Consulta el repositorio anterior, verifica versión/arquitectura/edición y SHA-256, permite descargar y después abrir el instalador | Acciones manuales; no instalación al cerrar, publicación automática ni actualización real de extremo a extremo ya ensayada |
+| Pantallas | Inicio, Buscar, Canciones, Playlists, Stems, Descargas, Ajustes y reproductor. Biblioteca con lupa/limpiar, filtros, favoritos, lista/cuadrícula e información; playlists con portadas, aleatorio, opciones, confirmación de borrado, DnD y botones de orden; Stems con fuentes/formato/trabajos y diálogo ardilla | Pruebas de renderizado y acciones no sustituyen comparar todos los estados visuales instalados |
+| Biblioteca | Copia/referencia, carpetas, búsqueda, favoritos, deduplicación y escaneo opcional. Retirar conserva el archivo y crea una exclusión; importar explícitamente la levanta | Archivos externos movidos requieren reimportación; no se ha validado toda biblioteca personal posible |
+| M3U/M3U8 | Importa rutas locales, combina playlists sin duplicados, conserva orden y compara nombres con SQLite NOCASE. Exporta UTF-8 extended M3U8 con rutas relativas cuando corresponde y absolutas fuera del destino | URL remotas y archivos ausentes/no representables se informan; no se descargan implícitamente |
+| Metadatos y carátulas | Extrae covers incrustados a caché validada por contenido; conserva etiquetas y covers al exportar MP3/WAV/FLAC/M4A/AAC/OGG/Opus y procesar audio. Descargas incorporan título, artista, procedencia y cover | El contenido legible depende de Lofty y del formato. Datos no portables se archivan en campos propios; otros reproductores no necesariamente los interpretan. La duración y etiquetas MKV/WebM todavía requieren un lector de contenedor adicional |
+| Audio | Play/pausa, seek, volumen, velocidad 0,25–4× con tono preservado, cola, aleatorio, repetición y temporizador | La salida de audio depende del sistema. Pendiente corregir historial de sesión para Anterior consecutivo y repetición activada tras agotar la cola; pendientes pruebas manuales Windows amplias |
+| Restauración | Pista, posición, cola local/remota, volumen, velocidad, aleatorio y repetición persistentes; restaura en pausa. Los registros remotos usan URL canónicas, nunca URL firmadas | El historial remoto anterior al elemento actual todavía no se restaura; corrección en curso. No implica que un recurso remoto siga disponible tras reiniciar |
+| Streaming YouTube | Caché por rangos: abre antes de descargar todo, prioriza seek, indica buffering y renueva una URL caducada. Vídeo remoto y local integrado con controles compartidos, posición, PiP/pantalla completa mediante WebView | Si falta un progresivo compatible, prepara un MP4 H.264/AAC temporal con cancelación. Reconexión acotada y seek ligados a la sesión evitan reactivar una pista cancelada. PiP, autoplay y códecs dependen del WebView; MKV local necesita adaptación adicional |
+| Descargas | MP3 128/192/256/320 kbps, MP4 progresivo/DASH, resolución máxima o límite elegido, concurrencia, reintentos, pausa/reanudar y caché duradera validada por identidad/tamaño/hash | El formato disponible depende de YouTube; no promete superar desafíos de acceso. Cachés incompatibles o corruptas se rechazan |
+| DASH | Une vídeo MP4 y audio AAC, incluidos fragmentos, sin FFmpeg ni recodificación; comprueba muestras, configuración y tiempos | Rechaza segmentos/metadatos mayores de 64 MiB, más de 2 millones de muestras por pista o timelines incompatibles. AV1/VP9 siguen dependiendo del decodificador del sistema |
+| Playlists remotas | Continuaciones reales; hasta 500 entradas reproducibles, 20 páginas y 120 segundos. Informa truncamiento/no disponibles y mantiene orden del lote al finalizar concurrentemente | No garantiza listas privadas ni recuperar listas que exceden los límites |
+| Preferencias de descarga | Plantillas `{title}`, `{artist}`, `{id}`, calidad, metadatos/covers, subtítulos WebVTT, timeout/reintentos y cookies Netscape elegidas por el usuario. El cliente admite proxy HTTP(S) | Extracción explícita de Firefox/Safari y Chromium compatible, sólo al pulsar Conectar; pruebas con perfiles sintéticos. Chromium App-Bound v20 se rechaza sin inyección ni elevación. Sin login interactivo, desafíos PO-token ni grabación en directo; cuenta real no validada |
+| Conversión y variantes | MP3, WAV24, FLAC24, M4A, AAC ADTS, OGG Vorbis y Opus; cancelación y publicación sin sobrescritura. SoundTouch/EQ para variaciones y ardilla, con presets y sliders | Mono/estéreo. FLAC se escribe por bloques sin el límite anterior de 512 MiB; probado con una fuente virtual mayor. Más de 192 kHz usa remuestreo temporal para SoundTouch. DSP y hashes PCM tienen algoritmos identificados y no son bit a bit iguales a FFmpeg histórico |
+| Stems | Edición completa: BS-RoFormer, autodetección CUDA/MPS con fallback CPU y ventanas solapadas; voz/instrumental exportables en FLAC, MP3 o WAV. Cola y concurrencia de procesos pesados | Modelo preparado requerido, el mismo modelo único ofrecido por la UI anterior. En este Mac el modelo congelado contiene float64 no soportado por MPS y cae a CPU; Windows Full incluye LibTorch CPU |
+| CALIDAD y huellas | Preparación SoXR HQ → separación → EQ/mezcla/remapeo → pico → FLAC24 auditado. Hash PCM y Chromaprint con comparación alineada; información local desde la biblioteca | Estimador de pico sin certificación IEC. Huella acústica limitada a 120 segundos; no consulta servicios externos ni promete resultados de reconocimiento |
+| Escritorio y ajustes | Menús/atajos, clic derecho nativo Mac y en página Windows, edición de texto, controles multimedia del SO, instancia única por perfil, apertura/drop, asociaciones, recientes, arrastre nativo, logs acotados y preferencias | Integración nativa nueva todavía requiere comprobación visual completa en ambas plataformas. Conservar preferencias históricas no implica reproducir toda opción antigua |
+| Plugins | API v2 Wasm, permisos explícitos `library.read`, `library.write`, `state`, `events`; comandos, estado aislado, eventos del host, proyecto Rust y journal avanzado | Python v1 se conserva sin ejecución ni conversión automática. Sin filesystem/red ambientales, tareas guest persistentes ni inyección arbitraria de UI |
+| Actualizaciones | Repositorio original, versión/arquitectura/edición exactas, SHA-256, comprobación/descarga automática, aviso reiniciar/posponer y opción explícita de instalar al salir; helper Rust espera el cierre y revalida antes de instalar | DMG aislado con firma ad-hoc, montaje, sustitución atómica y rollback probados. NSIS silencioso preparado; actualización de una versión publicada completa aún pendiente. El hash no acredita firma del editor |
 
-Las tareas de descarga y exportación sobreviven al cierre de su menú o cambio de resultados. El procesamiento utiliza temporales fuera de la biblioteca; la publicación de stems distingue cada resultado aunque se trunque un título largo. La cancelación de FLAC se comprueba entre bloques y los archivos parciales no se publican.
+Las tareas sobreviven al cierre de su menú o cambio de página. Los temporales de procesamiento y descargas quedan fuera de la biblioteca; publicación y copia de etiquetas protegen los originales. Los stems se publican por lote. Pausar conserva parciales reanudables; descartarlos comprueba otros trabajos que comparten la caché, incluidos registros anteriores al límite de 500 mostrado en la interfaz.
 
-## Compatibilidad de datos y extensiones
+## Datos y extensiones anteriores
 
-`AppCore::open_with_library` admite una base vacía o el esquema v4 anterior. Antes de ampliar por primera vez un perfil v4 crea `pre-rust-<id>.sqlite3` con la API de backup SQLite, incluidos datos confirmados en WAL. Conserva IDs, playlists, ajustes desconocidos y datos de plugins; mantiene el esquema histórico v4 y registra aparte el esquema Rust 2. La actualización Rust 1→2 añade exclusiones de escaneo sin reemplazar tablas históricas. Esquemas anteriores no admitidos, futuros o bases pobladas desconocidas se rechazan antes de migrar.
+`AppCore::open_with_library` admite una base vacía o el esquema v4 anterior. Antes de ampliar un perfil v4 crea `pre-rust-<id>.sqlite3` mediante backup SQLite, incluidos datos confirmados en WAL. Conserva IDs, playlists, ajustes desconocidos y datos de plugins; mantiene el esquema histórico v4 y registra aparte el esquema Rust 2. La migración Rust 1→2 añade exclusiones de escaneo. Bases antiguas incompatibles, futuras o pobladas desconocidas se rechazan antes de migrar.
 
-El perfil predeterminado es `~/Library/Application Support/YT Ultimate` en Mac y `%APPDATA%/YT Ultimate` en Windows. La raíz de biblioteca conserva `Downloads/YT_Ultimate` si existe; en caso contrario usa `Music/YT Ultimate`. Las instalaciones personalizadas pueden indicar `YTU_DATA_DIR` y `YTU_LIBRARY_DIR`. No se deben ejecutar ambas versiones simultáneamente sobre el mismo perfil. Las pruebas usan perfiles temporales; no afirman haber validado toda la biblioteca personal del usuario ni todas las acciones de reversión.
+El perfil es `~/Library/Application Support/YT Ultimate` en Mac y `%APPDATA%/YT Ultimate` en Windows. Se conserva `Downloads/YT_Ultimate` si existe; en caso contrario se usa `Music/YT Ultimate`. `YTU_DATA_DIR`/`YTU_LIBRARY_DIR` permiten perfiles aislados. No ejecutar Electron y Rust simultáneamente sobre el mismo perfil. El ensayo CI de upgrade desde Electron 4.4.1 está preparado y todavía no se declara aprobado.
 
-Los plugins nuevos se desactivan inicialmente. Activarlos fija el SHA-256 de manifiesto y módulo; modificar el código exige activación nueva. Wasmi limita instrucciones, memoria y tamaños de entrada/salida, sin imports WASI ni permisos ambientales. Se conserva la configuración Python existente como incompatible. El contrato está en [Plugin API v2](../crates/yt-plugins/README.md).
+Los plugins nuevos empiezan desactivados. Activarlos fija el SHA-256 de manifiesto/módulo; cambios de código o permisos exigen activación nueva. Wasmi limita fuel, memoria, llamadas y datos. El acceso concedido modifica registros y playlists, nunca originales ni SQL arbitrario. El journal Rust guarda eventos limitados en estado aislado. Véase [Plugin API v2](../crates/yt-plugins/README.md).
 
-Las actualizaciones mantienen `ElWapoteDev/yt-ultimate-releases`. Requieren un `digest` SHA-256 de GitHub o `SHA256SUMS` con nombre exacto; si existen ambos deben coincidir. Nunca intercambian silenciosamente base y completa. Se vuelve a verificar el archivo antes de abrirlo. SHA-256 prueba integridad respecto a la publicación, no reemplaza la firma del editor. Véanse [Actualizador](../crates/yt-updater/README.md) y [Empaquetado](RUST_PACKAGING.md).
+El actualizador mantiene `ElWapoteDev/yt-ultimate-releases`. Requiere digest SHA-256 de GitHub o `SHA256SUMS` con nombre exacto; si existen ambos deben coincidir. Base y Full nunca se intercambian silenciosamente. Revalida antes de abrir el archivo; integridad respecto al release no sustituye firma del editor. Véanse [Actualizador](../crates/yt-updater/README.md) y [Empaquetado](RUST_PACKAGING.md).
 
-## Evidencia de verificación
+## Verificación observada
 
-La última ejecución completa aprobó **85 de 85 pruebas**: 1 de `xtask`, 13 de la app, 7 de audio, 16 de core, 14 unitarias de media y 6 de transporte HTTP, 9 de plugins, 10 de CALIDAD y 9 del actualizador. Incluye SQLite real temporal, migración y backup, reimportación, acciones Dioxus, códecs reales, cancelación, límites Wasm y validación de descargas. Las pruebas heredadas Electron/Python permanecen disponibles, pero no prueban el ejecutable Rust.
+La entrega publicada 5.0.0 aprobó **85 de 85 pruebas**, formato y Clippy del workspace completo con separación habilitada. El código 5.0.1 incorpora más pruebas; el recuento integral final de esta revisión sigue pendiente. No se suman ejecuciones parciales para presentar un total artificial.
 
-| Prueba observada en esta Mac | Resultado |
+| Evidencia | Resultado observado |
 | --- | --- |
-| Workspace completo | Formato y Clippy de todos los targets con advertencias como errores aprobados; suite completa ejecutada con funciones de separación habilitadas |
-| YouTube real | Búsqueda, metadatos, resolución y descarga AAC completa de un vídeo público; 10.271.496 bytes y decodificación verificados. La conversión MP3 tiene pruebas propias de códec |
-| Playlists reales | MIT: 35/35 entradas y límite de 3 correctamente marcado como parcial. Lista de subidas MIT con 8.161 reportadas: 105 recuperadas mediante continuación real y `truncated=true` |
-| Audio Mac | Reproducción, pausa, seek, volumen, velocidad y temporizador; decodificación y seek de Ogg Opus sintético |
-| Modelo neuronal | Inferencia real de 1 y 9 segundos, ventanas solapadas, frames exactos, salida finita, reconstrucción y cancelación |
-| CALIDAD integral | Preparación → BS-RoFormer → DSP → FLAC24 → auditoría en 8,47 segundos para 44.237 frames de entrada. Salida de 43.526 frames; error PCM máximo 8,94e−8, inferior a 2⁻²³; pico estimado −1,09999997 dBTP |
-| Paquete Mac completo | Arranque sin rutas externas de LibTorch; importación y separación desde la UI de un audio de 15 segundos, con original/voces/instrumental registrados |
-| CALIDAD desde la UI | Procesamiento de un audio de 15 segundos completado al 100%; FLAC de aproximadamente 0,8 MB incorporado a la biblioteca |
-| Descarga MP3 desde la UI | Big Buck Bunny, aproximadamente 635 segundos: descarga y conversión completadas al 100%; el trabajo sobrevivió a otra búsqueda que desmontó la fila original |
-| Exportación, plugins y versiones desde la UI | Exportación FLAC desde menú mediante diálogo nativo y archivo guardado; instalación/activación del ejemplo Wasm y comando Saludar con resultado «Hola, mundo»; consulta al repositorio real de versiones con respuesta de versión actual |
-| Interfaz Mac | Biblioteca, importación, play/pausa, creación/edición de playlists, pistas y búsqueda probadas visualmente; revisión visual completa pendiente |
+| Core/audio/plugins nuevos | Pruebas con SQLite temporal, tags/covers MP3/WAV/FLAC, M3U8, limpieza, restauración remota y guests Wasm reales aprobadas; no usan el perfil personal |
+| Nuevas pantallas | 10 pruebas aprobadas: 4 de procesamiento, 3 de biblioteca/información y 3 de playlists. Incluyen renderizado, clics VirtualDom, confirmación de borrado, covers reales y copia exacta del resultado; Clippy app/core con advertencias como errores aprobado |
+| Caché compartida | Regresión core aprobada: encuentra original y reintento aunque queden detrás de 501 trabajos más recientes; tolera JSON legado inválido |
+| YouTube y playlists reales | Audio público completo de 10.271.496 bytes y 634,625 s. MIT: 35/35, límite 3 marcado parcial y 105 entradas por continuación de uploads con 8.161 reportadas |
+| Streaming | Inicio de decodificación en 167 ms con 262.144 de 10.271.496 bytes; seek a 120 s antes de terminar. Servidor lento local cubierto por regresión |
+| Reanudar | Pausa a 1.048.576 bytes, nuevo cliente/resolución, reanudación y decodificación de los 634,625 s completos; pruebas de cola de escritura tras crash, corrupción e identidad incompatible |
+| DASH | 4 pruebas del mux y fixture real de aproximadamente 635 s conservan muestras/configuración/tiempos de audio y vídeo. Flujo app descarga → carátula → mux → publicación → índice aprobado: MP4 de 15.135.242 bytes a 144p en 7,53 s |
+| Subtítulos y tempo | Consulta real: 36 idiomas y 80 cues ingleses WebVTT. Tono de prueba de 440 Hz conservado a velocidad 2× |
+| Modelo y CALIDAD | Inferencia real de 1 y 9 s con ventanas, reconstrucción y cancelación. Cadena CALIDAD completa de 44.237 frames en 8,47 s; error PCM máximo 8,94e−8, menor que 2⁻²³; pico estimado −1,09999997 dBTP |
+| UI del paquete Mac 5.0.0 | Importación, play/pausa, playlists, búsqueda, separación y CALIDAD de 15 s, MP3 completo de Big Buck Bunny, exportación FLAC nativa, plugin Saludar y consulta real de versiones; cierre Cmd+Q comprobado |
+| UI integrada 5.0.1 | Perfil aislado: menú nativo de Inicio/Biblioteca, cola, play/pausa/seek, Espacio, Cmd+F, cortar/pegar por menú, búsqueda/stream real, ajustes, huella local, Stems de 15 s, exportación idéntica al resultado y fingerprint Intenso aprobados. El original quedó intacto; sin errores en run.log. Resto de flujos y comparación visual completa en curso |
 
-La prueba CALIDAD procesa aproximadamente un segundo de audio sintético; los 8,47 segundos corresponden al tiempo total de ejecución, no a la duración de la canción. Las métricas y el contrato del DSP están en [yt-quality](../crates/yt-quality/README.md). Los ensayos en servicios reales documentan ejemplos concretos, no garantía frente a cambios futuros de YouTube.
+Los 8,47 segundos de CALIDAD corresponden al tiempo de cálculo sobre aproximadamente un segundo de audio sintético, no a la duración de una canción. Los ensayos online prueban ejemplos concretos, no inmunidad frente a cambios de YouTube. Los detalles reproducibles están en [yt-media](../crates/yt-media/README.md) y [yt-quality](../crates/yt-quality/README.md).
 
-La comprobación final del paquete Mac completo terminó cerrándolo con Cmd+Q y verificando que ya no estuviera ejecutándose. La consulta real de versiones no incluyó descargar ni instalar una actualización publicada nueva.
+## Plataformas y releases
 
-## Plataformas y distribución
-
-| Destino | Estado observado y límites |
+| Destino | Estado observado |
 | --- | --- |
-| Mac ARM64 base | Compilación y empaquetado intermedios comprobados; macOS 12 mínimo en configuración. Los paquetes base anteriores no son entregables finales |
-| Mac ARM64 completo | DMG final `YT Ultimate_5.0.0_aarch64_full.dmg`, 316.630.302 bytes. SHA256SUMS, integridad DMG, firma ad-hoc, arquitectura y dependencias comprobados; arranque final aislado de 10 segundos sin variables externas y cierre correcto. macOS 14 mínimo |
-| Windows x64 base | Release MSVC y NSIS intermedios generados desde Mac, con PE32+ e imports comprobados. Los paquetes base anteriores no son entregables finales |
-| Windows x64 completo | NSIS final `yt-ultimate_5.0.0_x64_full-setup.exe`, 309.303.263 bytes. SHA256SUMS, integridad del archivo, contenido, PE x64 y dependencias DLL/CRT comprobados. Incluye LibTorch, SoundTouch, SoXR, modelo y bootstrapper Evergreen oficial de WebView2 |
-| Windows en ejecución | Ni aplicación ni instalador ejecutados en Windows real; pruebas de arranque, instalación, audio, WebView y separación pendientes |
-| Mac Intel | Definido en CI; sin build ni arranque observados todavía |
-| MSI y firmas | Configuración disponible; MSI, firma de distribución y notarización pendientes de ejecución y certificados reales |
-| Android/iPhone | Fuera de esta entrega; sin objetivos de compilación ni instaladores móviles |
+| Mac ARM64 Full 5.0.0 | DMG publicado de 316.630.302 bytes; SHA256SUMS, integridad, firma ad-hoc, arquitectura/dependencias y arranque aislado comprobados. Mínimo macOS 14 |
+| Windows x64 Full 5.0.0 | NSIS publicado de 309.303.263 bytes; integridad, 32 entradas, hashes de ejecutable/modelo/bootstrapper y DLL/CRT comprobados; sin Electron/Node/Python |
+| Windows nativo en CI | NSIS publicado instalado en carpeta con espacios sobre Server 2022, ventana visible, proceso WebView2, SQLite aislado, asociaciones, cierre con código 0 y desinstalación aprobados en dos ejecuciones |
+| Windows interactivo | Sin ensayo manual completo de audio, vídeo, GPU o separación en Windows 10/11; Server 2022 no acredita esos flujos |
+| Edición base CI | Formato, pruebas, Clippy y compilación release aprobados para Mac ARM64, Mac Intel y Windows x64 en una revisión previa; no incluía empaquetado ni convierte los paquetes intermedios en entregables publicados |
+| Mac Intel | Edición base compilada en CI; ejecución instalada y edición Full pendientes. No se dispone aquí de LibTorch 2.12 oficial para Full Intel |
+| Full 5.0.1 y upgrade | Código en desarrollo; empaquetado definitivo y ensayo instalado Electron 4.4.1 → Rust pendientes de cierre |
+| Firmas y MSI | Sin firma de distribución ni notarización; MSI no declarado validado |
+| Android/iPhone | Aplazados, sin binarios ni instaladores móviles |
 
-La entrega final de esta sesión incluye solamente **Full para Mac ARM64 y Windows x64**, en sus directorios `full/`. Los paquetes base anteriores se trasladaron a `target/intermediate-packages/<destino>/5.0.0-base-pre-final/`, con `NO_DISTRIBUIR.md`, y no deben distribuirse como la entrega actual. Base y completa tienen nombres distintos para futuras compilaciones y actualizaciones. Los paquetes locales no acreditan firma de distribución, notarización ni actualización desde Electron. No se ha publicado un release ni actualizado automáticamente ninguna instalación. [RUST_PACKAGING.md](RUST_PACKAGING.md) mantiene comandos, nombres, bibliotecas y verificaciones de artefactos.
+La prueba Windows publicada está registrada en [CI de instalación nativa](https://github.com/ElWapoteDev/yt-ultimate-releases/actions/runs/42518474582/job/128846564064) y [su segunda ejecución](https://github.com/ElWapoteDev/yt-ultimate-releases/actions/runs/42520151853/job/128851666763). La [compilación base de las tres arquitecturas](https://github.com/ElWapoteDev/yt-ultimate-releases/actions/runs/42520151859) también aprobó. La revisión Full Windows posterior aprobó 84 pruebas y Clippy, pero su empaquetado encontró un fallo en el cálculo de hash del modelo; la corrección Rust se prueba por separado y no se presenta aún como un paquete 5.0.1 validado.
 
-El NSIS ejecuta el bootstrapper de WebView2 solo cuando el runtime no está instalado, comprueba de nuevo su registro antes de copiar la aplicación y muestra un error si no pudo instalarlo. Ese caso necesita Internet; el modelo y las bibliotecas nativas de la edición completa ya vienen incluidos. Esta lógica de instalación todavía requiere prueba en Windows real.
+El NSIS incluye Evergreen WebView2 oficial: lo ejecuta silenciosamente solo cuando falta el runtime, vuelve a comprobar el registro y falla con un mensaje claro si no pudo instalarlo. Ese caso necesita Internet. Modelo y bibliotecas nativas de Full ya están incluidos. No se ha probado aquí una instalación sin red ni una máquina limpia de todas las versiones WebView2.
 
-La auditoría del NSIS final verificó sus 32 entradas, ausencia de Electron/Node/Python y coincidencia de hashes del ejecutable, modelo y bootstrapper extraídos. El DMG y el NSIS finales tienen sus respectivos `SHA256SUMS` junto al instalador.
+El release 5.0.0 permanece inmutable; el desarrollo posterior no se atribuye a sus fuentes o binarios. Las bases locales anteriores están en `target/intermediate-packages/<destino>/5.0.0-base-pre-final/` con `NO_DISTRIBUIR.md`. Los nuevos resultados se generan bajo la versión correspondiente en `target/packages/`. [RUST_PACKAGING.md](RUST_PACKAGING.md) mantiene requisitos, nombres y comprobaciones del empaquetado.
 
-## Código anterior y trabajo pendiente
+## Checkpoint de paridad y trabajo pendiente
 
-Se conservan `frontend/`, `backend/`, sus scripts, pruebas y paquetes anteriores. [LEGACY_ELECTRON.md](LEGACY_ELECTRON.md) conserva íntegro el README original. No había repositorio Git en esta carpeta al iniciar el trabajo.
+Se conservan `frontend/`, `backend/`, scripts, pruebas y paquetes anteriores; [LEGACY_ELECTRON.md](LEGACY_ELECTRON.md) contiene el README original. La conservación no convierte automáticamente extensiones Python ni acredita todos los perfiles antiguos.
 
-Para cerrar la equivalencia completa faltan los límites indicados en la matriz, la comparación de pantallas y flujos, validación con datos existentes y ejecución de paquetes instalados en Windows y Mac Intel. La firma y la actualización publicada se deben probar cuando se habilite esa distribución. Los resultados actuales demuestran la reescritura funcional y sus pruebas observadas, no esos pasos todavía pendientes.
+Para cerrar equivalencia faltan las correcciones identificadas de historial/Anterior/repetición y vídeos Matroska, la comparación visual completa, el ensayo de upgrade instalado, los flujos manuales Windows y la ejecución Mac Intel. Firmas, notarización y actualización publicada requieren sus comprobaciones propias. La revisión 5.0.1 todavía debe completar validación integral y generar sus instaladores antes de publicarse.

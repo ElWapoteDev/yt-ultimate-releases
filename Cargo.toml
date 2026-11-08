@@ -2,10 +2,10 @@
 members = ["crates/yt-core", "crates/yt-media", "crates/yt-audio", "crates/yt-quality", "crates/yt-plugins", "crates/yt-updater", "crates/yt-app", "crates/xtask"]
 default-members = ["crates/yt-app"]
 resolver = "2"
-exclude = ["vendor/mp3lame-sys", "vendor/torch-sys"]
+exclude = ["vendor/mp3lame-sys", "vendor/torch-sys", "vendor/fdk-aac-sys"]
 
 [workspace.package]
-version = "5.0.0"
+version = "5.0.1"
 edition = "2021"
 rust-version = "1.89"
 license = "LicenseRef-Proprietary"

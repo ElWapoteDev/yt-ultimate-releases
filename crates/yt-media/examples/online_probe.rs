@@ -1,54 +1,44 @@
-//! Explicit network diagnostic; optional --download uses a temporary directory.
+//! Metadata or a complete download/decode check; no signed URL is printed.
+use rodio::Source;
 use yt_media::{CancellationToken, Downloader, StreamKind, YoutubeClient};
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let query = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "Big Buck Bunny Blender".into());
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    let input = args
+        .iter()
+        .find(|v| !v.starts_with("--"))
+        .map(String::as_str)
+        .unwrap_or("aqz-KE-bpKQ");
     let client = YoutubeClient::new()?;
-    let results = client.search(&query, 3).await?;
-    for result in &results {
+    let results = client.search("Big Buck Bunny Blender", 3).await?;
+    println!("Search returned {} videos", results.len());
+    let media = client.resolve(input, StreamKind::Audio).await?;
+    println!(
+        "Resolved {}: {} seconds, {:?} bytes",
+        media.media.title, media.media.duration_seconds, media.content_length
+    );
+    if args.iter().any(|v| v == "--download") {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("audio.m4a");
+        let receipt = Downloader::new()?
+            .download_sized(
+                &media.stream_url,
+                &path,
+                media.content_length,
+                CancellationToken::new(),
+                |_| {},
+            )
+            .await?;
+        let mut decoded = yt_media::decode_file(path)?;
+        let channels = decoded.channels();
+        let rate = decoded.sample_rate();
+        let count = decoded.by_ref().count();
+        assert!(decoded.decoding_error().is_none());
         println!(
-            "{} | {} | {} s",
-            result.id, result.title, result.duration_seconds
+            "Complete download {} bytes; decoded {:.3} seconds",
+            receipt.bytes,
+            count as f64 / channels as f64 / rate as f64
         );
-    }
-    if let Some(first) = results.first() {
-        match client.resolve(&first.url, StreamKind::Audio).await {
-            Ok(resolved) => {
-                println!(
-                    "Resolved {} ({}, {:?} bytes)",
-                    resolved.media.title, resolved.mime_type, resolved.content_length
-                );
-                if std::env::args().any(|argument| argument == "--download") {
-                    let directory = tempfile::tempdir()?;
-                    let path = directory.path().join("probe.m4a");
-                    let receipt = Downloader::new()?
-                        .download_sized(
-                            &resolved.stream_url,
-                            &path,
-                            resolved.content_length,
-                            CancellationToken::new(),
-                            |_| {},
-                        )
-                        .await?;
-                    if let Some(expected) = resolved.content_length {
-                        assert_eq!(receipt.bytes, expected);
-                    }
-                    let source = yt_media::decode_file(path)?;
-                    assert!(source.take(48_000).count() > 0);
-                    println!(
-                        "Downloaded and decoded {} bytes using Rust; temporary file removed.",
-                        receipt.bytes
-                    );
-                }
-            }
-            Err(error) => {
-                eprintln!("Resolution failed: {error}");
-                std::process::exit(2);
-            }
-        }
     }
     Ok(())
 }

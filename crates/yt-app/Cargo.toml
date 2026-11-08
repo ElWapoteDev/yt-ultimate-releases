@@ -31,6 +31,17 @@ rand = "0.9"
 url = "2"
 tempfile = "3"
 
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+drag = "=2.1.1"
+arboard = { version = "3.7", default-features = false }
+souvlaki = { version = "=0.9.3", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+window-vibrancy = "=0.8.1"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSDocumentController"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSURL", "NSArray"] }
+
 [dev-dependencies]
 dioxus-ssr = "0.7.3"
 tempfile = "3"

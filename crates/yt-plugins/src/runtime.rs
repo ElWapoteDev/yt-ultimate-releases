@@ -1,7 +1,7 @@
 use crate::{PluginError, Result};
 use serde_json::Value;
 use wasmi::{
-    Config, EnforcedLimits, Engine, Instance, Linker, Module, Store, StoreLimits,
+    Caller, Config, EnforcedLimits, Engine, Instance, Linker, Module, Store, StoreLimits,
     StoreLimitsBuilder,
 };
 
@@ -15,7 +15,71 @@ fn runtime(error: impl std::fmt::Display) -> PluginError {
     PluginError::Runtime(error.to_string())
 }
 
-fn instantiate(bytes: &[u8]) -> Result<(Store<StoreLimits>, Instance)> {
+type HostCall = Box<dyn FnMut(Value) -> Result<Value> + Send>;
+struct RuntimeState {
+    limits: StoreLimits,
+    host: Option<HostCall>,
+    calls: usize,
+}
+const MAX_HOST_BYTES: usize = 64 * 1024;
+
+fn host_call(
+    mut caller: Caller<RuntimeState>,
+    pointer: i32,
+    length: i32,
+    output: i32,
+    capacity: i32,
+) -> std::result::Result<i32, wasmi::Error> {
+    let error = || wasmi::Error::new("Invalid host call buffer or call budget exhausted");
+    if length <= 0
+        || length as usize > MAX_HOST_BYTES
+        || capacity <= 0
+        || capacity as usize > MAX_HOST_BYTES
+        || caller.data().calls >= 64
+    {
+        return Err(error());
+    }
+    let memory = caller
+        .get_export("memory")
+        .and_then(|value| value.into_memory())
+        .ok_or_else(error)?;
+    let output_start = output as u32 as usize;
+    let output_end = output_start
+        .checked_add(capacity as usize)
+        .ok_or_else(error)?;
+    if output_end > memory.data(&caller).len() {
+        return Err(error());
+    }
+    let mut input = vec![0; length as usize];
+    memory
+        .read(&caller, pointer as u32 as usize, &mut input)
+        .map_err(|_| error())?;
+    let request: Value = serde_json::from_slice(&input)
+        .map_err(|_| wasmi::Error::new("Invalid host request JSON"))?;
+    caller.data_mut().calls += 1;
+    let result = match caller.data_mut().host.as_mut() {
+        Some(host) => host(request),
+        None => Err(PluginError::Invalid(
+            "Host capabilities are unavailable".into(),
+        )),
+    };
+    let response = match result {
+        Ok(value) => serde_json::json!({"ok":true,"value":value}),
+        Err(error) => serde_json::json!({"ok":false,"error":error.to_string()}),
+    };
+    let response = serde_json::to_vec(&response).map_err(|_| error())?;
+    if response.len() > capacity as usize {
+        // A completed mutation must not be retried automatically when its
+        // response does not fit. The SDK always supplies the full 64 KiB buffer.
+        return Err(wasmi::Error::new("Host response exceeds the output buffer"));
+    }
+    memory
+        .write(&mut caller, output_start, &response)
+        .map_err(|_| error())?;
+    Ok(response.len() as i32)
+}
+
+fn instantiate(bytes: &[u8], host: Option<HostCall>) -> Result<(Store<RuntimeState>, Instance)> {
     if bytes.len() > MAX_MODULE_BYTES || !bytes.starts_with(b"\0asm\x01\0\0\0") {
         return Err(PluginError::Invalid(
             "Plugin must be a WebAssembly v1 binary no larger than 8 MiB".into(),
@@ -32,9 +96,12 @@ fn instantiate(bytes: &[u8]) -> Result<(Store<StoreLimits>, Instance)> {
         .set_max_cached_stacks(0);
     let engine = Engine::new(&config);
     let module = Module::new(&engine, bytes).map_err(runtime)?;
-    if module.imports().next().is_some() {
+    if module
+        .imports()
+        .any(|import| import.module() != "ytu" || import.name() != "host_call")
+    {
         return Err(PluginError::Invalid(
-            "Plugin imports are disabled: no WASI, filesystem, process or network access".into(),
+            "Only ytu.host_call is allowed; no WASI, filesystem, process or network imports".into(),
         ));
     }
     let limits = StoreLimitsBuilder::new()
@@ -45,10 +112,20 @@ fn instantiate(bytes: &[u8]) -> Result<(Store<StoreLimits>, Instance)> {
         .instances(1)
         .trap_on_grow_failure(true)
         .build();
-    let mut store = Store::new(&engine, limits);
-    store.limiter(|limits| limits);
+    let mut store = Store::new(
+        &engine,
+        RuntimeState {
+            limits,
+            host,
+            calls: 0,
+        },
+    );
+    store.limiter(|state| &mut state.limits);
     store.set_fuel(EXECUTION_FUEL).map_err(runtime)?;
-    let linker = Linker::<StoreLimits>::new(&engine);
+    let mut linker = Linker::<RuntimeState>::new(&engine);
+    linker
+        .func_wrap("ytu", "host_call", host_call)
+        .map_err(runtime)?;
     let instance = linker
         .instantiate_and_start(&mut store, &module)
         .map_err(runtime)?;
@@ -65,15 +142,15 @@ fn instantiate(bytes: &[u8]) -> Result<(Store<StoreLimits>, Instance)> {
 }
 
 pub(crate) fn validate_module(bytes: &[u8]) -> Result<()> {
-    instantiate(bytes).map(|_| ())
+    instantiate(bytes, None).map(|_| ())
 }
 
-pub(crate) fn execute(bytes: &[u8], input: &Value) -> Result<Value> {
+pub(crate) fn execute(bytes: &[u8], input: &Value, host: HostCall) -> Result<Value> {
     let input = serde_json::to_vec(input)?;
     if input.len() > MAX_INPUT_BYTES {
         return Err(PluginError::Invalid("Plugin input exceeds 64 KiB".into()));
     }
-    let (mut store, instance) = instantiate(bytes)?;
+    let (mut store, instance) = instantiate(bytes, Some(host))?;
     let memory = instance
         .get_memory(&store, "memory")
         .ok_or_else(|| PluginError::Invalid("Missing plugin memory".into()))?;

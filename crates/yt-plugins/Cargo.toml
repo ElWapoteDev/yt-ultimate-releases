@@ -7,6 +7,7 @@ license.workspace = true
 description = "Opt-in, resource-limited Rust/WebAssembly plugins for YT Ultimate"
 
 [dependencies]
+yt-core = { path = "../yt-core" }
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

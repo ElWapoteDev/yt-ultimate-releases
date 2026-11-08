@@ -1,21 +1,36 @@
 //! Application-owned media operations. No subprocesses or local HTTP service.
 
+mod browser_cookies;
+mod connection;
 mod decoder;
 mod download;
+mod mux;
 mod playback;
+mod prepared_video;
+mod resume;
+mod search;
 #[cfg(feature = "native-stems")]
 mod stems;
+mod streaming;
+mod tempo;
 mod youtube;
 
+pub use browser_cookies::{read_browser_cookies, BrowserCookieSession};
+pub use connection::ConnectionOptions;
 pub use decoder::{decode_file, DecodedAudio};
 pub use download::{safe_file_name, DownloadProgress, DownloadReceipt, Downloader};
-pub use playback::{AudioPlayer, PlaybackSnapshot};
+pub use mux::{mux_mp4, MuxProgress};
+pub use playback::{AudioPlayer, PlaybackSession, PlaybackSnapshot};
+pub use prepared_video::PreparedVideo;
+pub use resume::{ResumeKey, ResumeStatus};
 #[cfg(feature = "native-stems")]
 pub use stems::{StemProgress, StemReceipt, StemSeparator};
+pub use streaming::{open_http_audio, StreamingHandle, StreamingSnapshot};
 pub use tokio_util::sync::CancellationToken;
 pub use youtube::{
-    canonical_playlist_url, canonical_video_url, PlaylistResult, ResolvedMedia, SearchResult,
-    StreamKind, YoutubeClient, PLAYLIST_ITEM_LIMIT,
+    canonical_playlist_url, canonical_video_url, AvailableFormat, PlaylistResult, ResolvedDownload,
+    ResolvedMedia, SearchResult, StreamKind, SubtitleDocument, SubtitleTrack, VideoDetailsResult,
+    VideoQuality, YoutubeClient, PLAYLIST_ITEM_LIMIT,
 };
 
 #[derive(Debug, thiserror::Error)]

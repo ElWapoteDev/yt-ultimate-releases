@@ -7,12 +7,17 @@ Function YtuFindLegacyElectron
   StrCpy $YtuLegacyDirectory ""
   StrCpy $YtuLegacyRegistryView 64
   SetRegView 64
+  ReadRegStr $1 HKCU "${YTU_LEGACY_UNINSTALL}" "DisplayVersion"
   ReadRegStr $0 HKCU "${YTU_LEGACY_UNINSTALL}" "DisplayName"
   StrCmp $0 "YT Ultimate" legacy_validate
+  ; electron-builder defaults to "${productName} ${version}" in Programs.
+  StrCmp $0 "YT Ultimate $1" legacy_validate
   StrCpy $YtuLegacyRegistryView 32
   SetRegView 32
+  ReadRegStr $1 HKCU "${YTU_LEGACY_UNINSTALL}" "DisplayVersion"
   ReadRegStr $0 HKCU "${YTU_LEGACY_UNINSTALL}" "DisplayName"
-  StrCmp $0 "YT Ultimate" legacy_validate legacy_not_found
+  StrCmp $0 "YT Ultimate" legacy_validate
+  StrCmp $0 "YT Ultimate $1" legacy_validate legacy_not_found
 legacy_validate:
   ReadRegStr $0 HKCU "${YTU_LEGACY_UNINSTALL}" "DisplayVersion"
   StrCpy $0 $0 2
