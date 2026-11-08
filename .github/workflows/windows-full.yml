@@ -103,7 +103,7 @@ jobs:
         run: |
           $installers = @(Get-ChildItem -Path 'target/packages/x86_64-pc-windows-msvc/*/full/*_full-setup.exe')
           if ($installers.Count -ne 1) { throw 'Expected exactly one newly built Full installer' }
-          ./packaging/ci/windows-installed-smoke.ps1 -Installer $installers[0].FullName -StemsProbe target/release/examples/stems_probe.exe -QualityProbe target/release/examples/quality_probe.exe
+          ./packaging/ci/windows-installed-smoke.ps1 -Installer $installers[0].FullName -InstalledExecutableName 'YT Ultimate.exe' -StemsProbe target/release/examples/stems_probe.exe -QualityProbe target/release/examples/quality_probe.exe
       - name: Upgrade the original Electron 4.4.1 installation and preserve its profile
         shell: pwsh
         run: |
@@ -112,7 +112,7 @@ jobs:
           if ((Get-FileHash -Algorithm SHA256 -LiteralPath $legacy).Hash.ToLowerInvariant() -ne 'ceabe0bb895fcdd1a5deb8d82d601cb1dc0afd9c566f634ce7a44799327dd154') { throw 'Legacy installer hash mismatch' }
           $installers = @(Get-ChildItem -Path 'target/packages/x86_64-pc-windows-msvc/*/full/*_full-setup.exe')
           if ($installers.Count -ne 1) { throw 'Expected exactly one newly built Full installer' }
-          ./packaging/ci/windows-installed-smoke.ps1 -Installer $installers[0].FullName -LegacyInstaller $legacy -ResultsDirectory target/ci-results/windows-upgrade
+          ./packaging/ci/windows-installed-smoke.ps1 -Installer $installers[0].FullName -InstalledExecutableName 'YT Ultimate.exe' -LegacyInstaller $legacy -ResultsDirectory target/ci-results/windows-upgrade
       - name: Upload Full installer and evidence for review
         if: always()
         uses: actions/upload-artifact@v4

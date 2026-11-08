@@ -41,7 +41,7 @@ Section "Upgrade Electron 4.x"
   StrCmp $0 0 legacy_app_running
   DetailPrint "Actualizando YT Ultimate 4.x y conservando el perfil y la biblioteca..."
   ClearErrors
-  ExecWait '"$YtuLegacyDirectory\Uninstall YT Ultimate.exe" /S --updated /currentuser' $0
+  ExecWait '"$YtuLegacyDirectory\Uninstall YT Ultimate.exe" /S --updated --keep-shortcuts /currentuser' $0
   IfErrors legacy_uninstall_failed
   StrCmp $0 0 0 legacy_uninstall_failed
   ; NSIS may move its uninstaller to TEMP. Wait for its child to remove both

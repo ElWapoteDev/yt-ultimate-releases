@@ -29,7 +29,9 @@ ${StrLoc}
 !define INSTALLERICON "{{installer_icon}}"
 !define SIDEBARIMAGE "{{sidebar_image}}"
 !define HEADERIMAGE "{{header_image}}"
-!define MAINBINARYNAME "{{main_binary_name}}"
+; Preserve the original Electron executable path so pinned shortcuts remain valid.
+; Cargo and cargo-packager still build/read the Rust yt-ultimate executable.
+!define MAINBINARYNAME "YT Ultimate"
 !define MAINBINARYSRCPATH "{{main_binary_path}}"
 !define IDENTIFIER "{{identifier}}"
 !define COPYRIGHT "{{copyright}}"
@@ -380,6 +382,29 @@ FunctionEnd
 Var PassiveMode
 Var YtuLegacyDirectory
 Var YtuLegacyRegistryView
+!macro CheckIfAppIsRunning
+  ; Both the Electron-compatible name and the published Rust preview can exist.
+  ; Give the update helper time to exit; never terminate active media jobs.
+  StrCpy $R2 0
+  ${Do}
+    nsis_tauri_utils::FindProcess "YT Ultimate.exe"
+    Pop $R0
+    nsis_tauri_utils::FindProcess "yt-ultimate.exe"
+    Pop $R1
+    ${If} $R0 != 0
+    ${AndIf} $R1 != 0
+      ${ExitDo}
+    ${EndIf}
+    IntOp $R2 $R2 + 1
+    ${If} $R2 >= 50
+      MessageBox MB_OK|MB_ICONEXCLAMATION "Cierra YT Ultimate antes de continuar. Los trabajos activos no se cancelan automáticamente." /SD IDOK
+      SetErrorLevel 3
+      Abort
+    ${EndIf}
+    Sleep 100
+  ${Loop}
+!macroend
+
 Function .onInit
   ${GetOptions} $CMDLINE "/P" $PassiveMode
   IfErrors +2 0
@@ -391,6 +416,7 @@ Function .onInit
 
   !insertmacro SetContext
 
+  !insertmacro CheckIfAppIsRunning
   Call YtuFindLegacyElectron
 
   ${If} $INSTDIR == ""
@@ -415,7 +441,11 @@ Function .onInit
     !endif
     ${EndIf}
 
-    Call RestorePreviousInstallLocation
+    ; The original Electron location takes precedence over a remembered Rust
+    ; path, which can remain in the registry after a previous uninstall.
+    ${If} $YtuLegacyDirectory == ""
+      Call RestorePreviousInstallLocation
+    ${EndIf}
   ${EndIf}
 
 
@@ -448,36 +478,7 @@ SectionEnd
 {{unescape_newlines preinstall_section}}
 {{/if}}
 
-!macro CheckIfAppIsRunning
-  nsis_tauri_utils::FindProcess "${MAINBINARYNAME}.exe"
-  Pop $R0
-  ${If} $R0 = 0
-      IfSilent kill 0
-      ${IfThen} $PassiveMode != 1 ${|} MessageBox MB_OKCANCEL "$(appRunningOkKill)" IDOK kill IDCANCEL cancel ${|}
-      kill:
-        nsis_tauri_utils::KillProcess "${MAINBINARYNAME}.exe"
-        Pop $R0
-        Sleep 500
-        ${If} $R0 = 0
-          Goto app_check_done
-        ${Else}
-          IfSilent silent ui
-          silent:
-            System::Call 'kernel32::AttachConsole(i -1)i.r0'
-            ${If} $0 != 0
-              System::Call 'kernel32::GetStdHandle(i -11)i.r0'
-              System::call 'kernel32::SetConsoleTextAttribute(i r0, i 0x0004)' ; set red color
-              FileWrite $0 "$(appRunning)$\n"
-            ${EndIf}
-            Abort
-          ui:
-            Abort "$(failedToKillApp)"
-        ${EndIf}
-      cancel:
-        Abort "$(appRunning)"
-  ${EndIf}
-  app_check_done:
-!macroend
+
 
 Section Install
   SetOutPath $INSTDIR
@@ -485,7 +486,21 @@ Section Install
   !insertmacro CheckIfAppIsRunning
 
   ; Copy main executable
-  File "${MAINBINARYSRCPATH}"
+  File "/oname=${MAINBINARYNAME}.exe" "${MAINBINARYSRCPATH}"
+
+  ; Preserve shortcuts to the Rust preview's filename as well as Electron's.
+  ; NTFS shares the same executable bytes; other filesystems receive a copy.
+  Delete "$INSTDIR\yt-ultimate.exe"
+  System::Call 'kernel32::CreateHardLinkW(w "$INSTDIR\yt-ultimate.exe", w "$INSTDIR\${MAINBINARYNAME}.exe", p 0) i .r0'
+  ${If} $0 == 0
+    ClearErrors
+    CopyFiles /SILENT "$INSTDIR\${MAINBINARYNAME}.exe" "$INSTDIR\yt-ultimate.exe"
+    ${If} ${Errors}
+      MessageBox MB_OK|MB_ICONSTOP "No se pudo conservar el acceso de la versión anterior." /SD IDOK
+      SetErrorLevel 5
+      Abort
+    ${EndIf}
+  ${EndIf}
 
   ; Create resources directory structure
   {{#each resources_dirs}}
@@ -591,6 +606,7 @@ Section Uninstall
   ; Delete the app directory and its content from disk
   ; Copy main executable
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"
+  Delete "$INSTDIR\yt-ultimate.exe"
 
   ; Delete resources
   {{#each resources}}
@@ -628,6 +644,9 @@ Section Uninstall
   ; Remove start menu shortcut
   !insertmacro MUI_STARTMENU_GETFOLDER Application $AppStartMenuFolder
   Delete "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk"
+  ; Electron created a flat Start Menu link; keep it working during upgrade,
+  ; then remove it together with the new shortcut during explicit uninstall.
+  Delete "$SMPROGRAMS\${PRODUCTNAME}.lnk"
   RMDir "$SMPROGRAMS\$AppStartMenuFolder"
 
   ; Remove desktop shortcuts

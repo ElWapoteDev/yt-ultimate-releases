@@ -3,6 +3,7 @@ param(
     [string]$LegacyInstaller,
     [string]$StemsProbe,
     [string]$QualityProbe,
+    [ValidateSet('yt-ultimate.exe', 'YT Ultimate.exe')][string]$InstalledExecutableName = 'yt-ultimate.exe',
     [string]$ResultsDirectory = 'target/ci-results/windows-installed'
 )
 
@@ -33,6 +34,7 @@ New-Item -ItemType Directory -Force -Path $testRoot, $profilePath, $libraryPath 
 $result = [ordered]@{
     installer = $Installer
     installer_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $Installer).Hash.ToLowerInvariant()
+    installed_executable_name = $InstalledExecutableName
     os = [Environment]::OSVersion.VersionString
     legacy_upgrade_requested = [bool]$LegacyInstaller
     legacy_installation_completed = $false
@@ -44,6 +46,8 @@ $result = [ordered]@{
     isolated_gui_started = $false
     webview2_child_started = $false
     database_created = $false
+    single_instance_handoff = $null
+    compatibility_executable_verified = $null
     associations_verified = $false
     cpu_stems_passed = $false
     cpu_quality_passed = $false
@@ -116,13 +120,19 @@ try {
     if (Test-Path -LiteralPath $registryKey) {
         $result.registered_installation_directory = Get-ItemPropertyValue -LiteralPath $registryKey -Name InstallLocation
     }
-    $executable = Join-Path $installDirectory 'yt-ultimate.exe'
+    $executable = Join-Path $installDirectory $InstalledExecutableName
     $model = Join-Path $installDirectory 'models/bs-roformer-v1.pt'
     if (-not (Test-Path -LiteralPath $executable)) { throw 'Installed executable is missing' }
+    if ($InstalledExecutableName -eq 'YT Ultimate.exe') {
+        $compatibilityExecutable = Join-Path $installDirectory 'yt-ultimate.exe'
+        if (-not (Test-Path -LiteralPath $compatibilityExecutable)) { throw 'Rust preview compatibility executable is missing' }
+        if ((Get-FileHash -LiteralPath $compatibilityExecutable -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash) { throw 'Compatibility executable differs from the installed application' }
+        $result.compatibility_executable_verified = $true
+    }
     if ((Get-FileHash -Algorithm SHA256 -LiteralPath $model).Hash.ToLowerInvariant() -ne '31d794ab054bd70964b6165ceca3b94e00f344f8a0b8bc325def47ce9aa14926') { throw 'Installed model hash mismatch' }
     $result.installation_completed = $true
     if ($LegacyInstaller) {
-        foreach ($old in @('YT Ultimate.exe', 'Uninstall YT Ultimate.exe', 'resources/app.asar')) {
+        foreach ($old in @('Uninstall YT Ultimate.exe', 'resources/app.asar')) {
             if (Test-Path -LiteralPath (Join-Path $installDirectory $old)) { throw "Legacy application file remains: $old" }
         }
         if (Test-Path -LiteralPath $legacyRegistryKey) { throw 'Legacy uninstall registration remains' }
@@ -160,6 +170,26 @@ try {
     $result.window_title = $appProcess.MainWindowTitle
     Start-Sleep -Seconds 5
     if ($appProcess.HasExited) { throw 'Application exited during the startup observation period' }
+    # The immutable preview predates single-instance support. Require it for
+    # newly built source packages and the Electron upgrade path only.
+    if ($StemsProbe -or $LegacyInstaller) {
+        $secondaryPath = if ($InstalledExecutableName -eq 'YT Ultimate.exe') { $compatibilityExecutable } else { $executable }
+        $secondary = New-IsolatedProcess $secondaryPath
+        $secondaryStdout = $secondary.StandardOutput.ReadToEndAsync()
+        $secondaryStderr = $secondary.StandardError.ReadToEndAsync()
+        try {
+            if (-not $secondary.WaitForExit(15000)) { throw 'Second instance did not hand off to the primary window' }
+            if ($secondary.ExitCode -ne 0) { throw "Second instance failed: $($secondary.ExitCode); $($secondaryStderr.Result)" }
+            $appProcess.Refresh()
+            if ($appProcess.HasExited) { throw 'Primary instance exited during handoff' }
+            $result.single_instance_handoff = $true
+        } finally {
+            if (-not $secondary.HasExited) { $secondary.Kill($true); $secondary.WaitForExit() }
+            $secondaryStdout.Result | Out-File -LiteralPath (Join-Path $ResultsDirectory 'secondary.stdout.log') -Encoding utf8
+            $secondaryStderr.Result | Out-File -LiteralPath (Join-Path $ResultsDirectory 'secondary.stderr.log') -Encoding utf8
+            $secondary.Dispose()
+        }
+    }
     if (-not $appProcess.CloseMainWindow()) { throw 'Could not request a normal window close' }
     if (-not $appProcess.WaitForExit(30000)) { throw 'Application did not exit after closing its main window' }
     if ($appProcess.ExitCode -ne 0) { throw "Application closed with exit code $($appProcess.ExitCode)" }
@@ -193,7 +223,10 @@ try {
             $remove = Start-Process -FilePath $uninstaller -ArgumentList "/S _?=$installDirectory" -PassThru
             if (-not $remove.WaitForExit(120000)) { $remove.Kill($true); throw 'Uninstaller timed out' }
             if ($remove.ExitCode -ne 0) { throw "Uninstaller failed: $($remove.ExitCode)" }
-            if ((Test-Path -LiteralPath (Join-Path $installDirectory 'yt-ultimate.exe')) -or (Test-Path -LiteralPath $registryKey)) { throw 'Uninstaller left the application executable or registration' }
+            foreach ($name in @('yt-ultimate.exe', 'YT Ultimate.exe')) {
+                if (Test-Path -LiteralPath (Join-Path $installDirectory $name)) { throw "Uninstaller left the application executable: $name" }
+            }
+            if (Test-Path -LiteralPath $registryKey) { throw 'Uninstaller left the application registration' }
             foreach ($association in @('YTUltimate.Audio', 'YTUltimate.Video', 'YTUltimate.Playlist')) {
                 if (Test-Path -LiteralPath "HKCU:\Software\Classes\$association") { throw "Uninstaller left association $association" }
             }
@@ -206,6 +239,14 @@ try {
     } catch {
         $result.cleanup_failure = $_.Exception.ToString()
         if ($null -eq $failure) { $failure = $_ }
+    }
+    try {
+        $logs = Join-Path $profilePath 'Logs'
+        if (Test-Path -LiteralPath $logs -PathType Container) {
+            Copy-Item -LiteralPath $logs -Destination (Join-Path $ResultsDirectory 'application-logs') -Recurse -Force
+        }
+    } catch {
+        $result.log_copy_failure = $_.Exception.ToString()
     }
     $result | ConvertTo-Json -Depth 5 | Out-File -LiteralPath (Join-Path $ResultsDirectory 'result.json') -Encoding utf8
     $result | ConvertTo-Json -Depth 5 | Write-Output

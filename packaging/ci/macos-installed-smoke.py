@@ -1,9 +1,11 @@
 """Disposable Actions runner only: inspect a real native window and bundled CPU runtime."""
 import argparse
 import ctypes
+import hashlib
 import json
 import os
 from pathlib import Path
+import plistlib
 import shutil
 import sqlite3
 import subprocess
@@ -11,8 +13,90 @@ import tempfile
 import time
 
 
+LIBRARIES = ('libtorch.dylib', 'libtorch_cpu.dylib', 'libc10.dylib', 'libomp.dylib')
+EXECUTABLE = Path('Contents/MacOS/yt-ultimate')
+MODEL = Path('Contents/Resources/models/bs-roformer-v1.pt')
+MACH_O_FILES = (EXECUTABLE, *(Path('Contents/Frameworks') / name for name in LIBRARIES))
+
+
 def run(arguments, **options):
     return subprocess.run(arguments, check=True, text=True, **options)
+
+
+def version_tuple(value):
+    fields = str(value).split('.')
+    if not 1 <= len(fields) <= 3 or any(not field.isascii() or not field.isdecimal() for field in fields):
+        raise RuntimeError(f'Invalid macOS deployment version: {value!r}')
+    return tuple(int(field) for field in fields) + (0,) * (3 - len(fields))
+
+
+def mach_o_minimums(output):
+    """Read both modern and legacy deployment commands, including fat slices."""
+    records = []
+    current = None
+    for line in output.splitlines():
+        fields = line.strip().split()
+        if len(fields) < 2:
+            continue
+        if fields[0] == 'cmd':
+            current = None
+            if fields[1] in ('LC_BUILD_VERSION', 'LC_VERSION_MIN_MACOSX'):
+                current = {'command': fields[1]}
+                records.append(current)
+        elif current is not None:
+            if fields[0] == 'platform':
+                current['platform'] = fields[1]
+            elif fields[0] == ('minos' if current['command'] == 'LC_BUILD_VERSION' else 'version'):
+                version_tuple(fields[1])
+                current['minimum'] = fields[1]
+    if not records or any('minimum' not in record for record in records):
+        raise RuntimeError('Mach-O has no complete macOS deployment command')
+    return records
+
+
+def check_minimums(records, declared):
+    limit = version_tuple(declared)
+    for record in records:
+        if version_tuple(record['minimum']) > limit:
+            raise RuntimeError(f"Mach-O requires macOS {record['minimum']}, above declared {declared}")
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as source:
+        for block in iter(lambda: source.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def compare_payload(installed, built):
+    hashes = {}
+    for relative in (*MACH_O_FILES, MODEL):
+        actual = sha256(installed / relative)
+        expected = sha256(built / relative)
+        hashes[str(relative)] = {'installed': actual, 'built': expected}
+        if actual != expected:
+            raise RuntimeError(f'DMG contains a different or stale file: {relative}; installed={actual}, built={expected}')
+    return hashes
+
+
+def install_from_dmg(dmg, temporary):
+    mount = temporary / 'Mounted DMG'
+    mount.mkdir()
+    installed = temporary / 'Installed application with spaces' / 'YT Ultimate.app'
+    installed.parent.mkdir()
+    mounted = False
+    try:
+        run(['hdiutil', 'attach', '-readonly', '-nobrowse', '-mountpoint', str(mount), str(dmg)])
+        mounted = True
+        source = mount / 'YT Ultimate.app'
+        if not source.is_dir() or source.is_symlink():
+            raise RuntimeError('The DMG does not contain YT Ultimate.app')
+        run(['ditto', str(source), str(installed)])
+    finally:
+        if mounted or os.path.ismount(mount):
+            run(['hdiutil', 'detach', str(mount)])
+    return installed
 
 
 def has_window(pid):
@@ -63,23 +147,52 @@ def main():
     metadata = json.loads(subprocess.check_output(['cargo', 'metadata', '--locked', '--no-deps', '--format-version', '1']))
     version = next(package['version'] for package in metadata['packages'] if package['name'] == 'yt-app')
     directory = args.package_root.resolve() / version / 'full'
-    app = directory / 'YT Ultimate.app'
-    executable = app / 'Contents/MacOS/yt-ultimate'
-    frameworks = app / 'Contents/Frameworks'
-    model = app / 'Contents/Resources/models/bs-roformer-v1.pt'
+    built_app = directory / 'YT Ultimate.app'
     evidence = {'version': version, 'window_observed': False, 'database_created': False,
                 'single_instance_handoff': False, 'graceful_exit': False,
-                'cpu_stems_passed': False, 'cpu_quality_passed': False}
-    run(['codesign', '--verify', '--deep', '--strict', str(app)])
-    for dmg in directory.glob('*.dmg'):
-        run(['hdiutil', 'verify', str(dmg)])
+                'cpu_stems_passed': False, 'cpu_quality_passed': False,
+                'dmg_installed_and_detached': False, 'payload_matches_build': False,
+                'mach_o_minimums': {}}
     environment = {key: value for key, value in os.environ.items()
                    if not key.startswith(('DYLD_', 'LIBTORCH', 'PYTHON')) and key != 'CARGO_MANIFEST_DIR'}
     environment['PATH'] = '/usr/bin:/bin:/usr/sbin:/sbin'
     process = None
     try:
-        with tempfile.TemporaryDirectory(prefix='ytu-intel-installed-') as temporary:
+        dmgs = sorted(directory.glob('*.dmg'))
+        if len(dmgs) != 1:
+            raise RuntimeError(f'Expected exactly one DMG in {directory}, found {len(dmgs)}')
+        dmg = dmgs[0]
+        evidence['dmg'] = {'filename': dmg.name, 'sha256': sha256(dmg)}
+        run(['hdiutil', 'verify', str(dmg)])
+        with tempfile.TemporaryDirectory(prefix='YT Ultimate installed smoke ') as temporary:
             temporary = Path(temporary)
+            app = install_from_dmg(dmg, temporary)
+            evidence['dmg_installed_and_detached'] = True
+            run(['codesign', '--verify', '--deep', '--strict', str(app)])
+            with (app / 'Contents/Info.plist').open('rb') as source:
+                info = plistlib.load(source)
+            evidence['bundle_version'] = info.get('CFBundleShortVersionString')
+            evidence['bundle_build_version'] = info.get('CFBundleVersion')
+            if info.get('CFBundleShortVersionString') != version:
+                raise RuntimeError(f"DMG application version {info.get('CFBundleShortVersionString')!r} differs from Cargo {version}")
+            declared = info.get('LSMinimumSystemVersion')
+            version_tuple(declared)
+            evidence['declared_minimum_macos'] = declared
+            evidence['payload_sha256'] = compare_payload(app, built_app)
+            evidence['payload_matches_build'] = True
+            for relative in MACH_O_FILES:
+                output = subprocess.check_output(['otool', '-l', str(app / relative)], text=True)
+                (results / f'{relative.name}.load-commands.txt').write_text(output)
+                records = mach_o_minimums(output)
+                evidence['mach_o_minimums'][str(relative)] = records
+            for relative, records in evidence['mach_o_minimums'].items():
+                try:
+                    check_minimums(records, declared)
+                except RuntimeError as error:
+                    raise RuntimeError(f'{relative}: {error}') from error
+            executable = app / EXECUTABLE
+            frameworks = app / 'Contents/Frameworks'
+            model = app / MODEL
             profile = temporary / 'profile'
             environment['YTU_DATA_DIR'] = str(profile)
             environment['YTU_LIBRARY_DIR'] = str(temporary / 'library')
@@ -112,8 +225,7 @@ def main():
             isolated_bin = temporary / 'bin'
             isolated_lib.mkdir()
             isolated_bin.mkdir()
-            libraries = ('libtorch.dylib', 'libtorch_cpu.dylib', 'libc10.dylib', 'libomp.dylib')
-            for name in libraries:
+            for name in LIBRARIES:
                 shutil.copy2(frameworks / name, isolated_lib / name)
             for name, arguments, field in [('stems_probe', [str(model), '9'], 'cpu_stems_passed'),
                                             ('quality_probe', [str(model)], 'cpu_quality_passed')]:
@@ -125,7 +237,7 @@ def main():
                     if dependency.startswith(('/usr/lib/', '/System/Library/')):
                         continue
                     base = dependency.rsplit('/', 1)[-1]
-                    if base not in libraries:
+                    if base not in LIBRARIES:
                         raise RuntimeError(f'Unexpected probe dependency: {dependency}')
                     run(['install_name_tool', '-change', dependency, f'@executable_path/../lib/{base}', str(binary)])
                 # Clear development RPATHs: these probes must use the copied bundle libraries.
