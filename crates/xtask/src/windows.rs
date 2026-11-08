@@ -56,24 +56,21 @@ pub fn webview2_bootstrapper(root: &Path) -> Result<PathBuf> {
 }
 
 fn verify_webview2_bootstrapper(path: &Path) -> Result {
-    let output = if cfg!(windows) {
-        Command::new("powershell").args([
+    if cfg!(windows) {
+        let output = Command::new("powershell").args([
             "-NoProfile", "-NonInteractive", "-Command",
-            "$ErrorActionPreference='Stop'; $signature=Get-AuthenticodeSignature -LiteralPath $env:YTU_BOOTSTRAPPER_PATH; if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch '(^|, *)CN=Microsoft Corporation(,|$)') { throw 'WebView2 bootstrapper must have a valid Microsoft signature' }; (Get-FileHash -Algorithm SHA256 -LiteralPath $env:YTU_BOOTSTRAPPER_PATH).Hash.ToLowerInvariant()"
-        ]).env("YTU_BOOTSTRAPPER_PATH", path).output()?
-    } else {
-        Command::new("shasum")
-            .args(["-a", "256"])
-            .arg(path)
-            .output()?
-    };
-    if !output.status.success()
-        || String::from_utf8_lossy(&output.stdout)
-            .split_whitespace()
-            .next()
-            != Some(WEBVIEW2_SHA256)
-    {
-        return Err(format!("Unexpected WebView2 bootstrapper: {}. The official download is SHA-256 pinned; review Microsoft's updated binary before updating WEBVIEW2_SHA256. {}", path.display(), String::from_utf8_lossy(&output.stderr)).into());
+            "$ErrorActionPreference='Stop'; $signature=Get-AuthenticodeSignature -LiteralPath $env:YTU_BOOTSTRAPPER_PATH; if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch '(^|, *)CN=Microsoft Corporation(,|$)') { throw 'WebView2 bootstrapper must have a valid Microsoft signature' }"
+        ]).env("YTU_BOOTSTRAPPER_PATH", path).output()?;
+        if !output.status.success() {
+            return Err(format!(
+                "Could not verify WebView2 Authenticode signature: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )
+            .into());
+        }
+    }
+    if crate::file_sha256(path)? != WEBVIEW2_SHA256 {
+        return Err(format!("Unexpected WebView2 bootstrapper: {}. The official download is SHA-256 pinned; review Microsoft's updated binary before updating WEBVIEW2_SHA256.", path.display()).into());
     }
     Ok(())
 }

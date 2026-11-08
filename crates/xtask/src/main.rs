@@ -1,9 +1,11 @@
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     env,
     error::Error,
     ffi::OsStr,
     fs,
+    io::Read,
     path::{Path, PathBuf},
     process::{Command, ExitCode},
 };
@@ -554,25 +556,7 @@ fn write_checksums(directory: &Path, formats: &str) -> Result {
         {
             continue;
         }
-        let output = if cfg!(windows) {
-            Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", "(Get-FileHash -Algorithm SHA256 -LiteralPath $env:YTU_CHECKSUM_PATH).Hash.ToLowerInvariant()"]).env("YTU_CHECKSUM_PATH", &path).output()?
-        } else {
-            Command::new("shasum")
-                .args(["-a", "256"])
-                .arg(&path)
-                .output()?
-        };
-        let hash = String::from_utf8(output.stdout)?
-            .split_whitespace()
-            .next()
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        if !output.status.success()
-            || hash.len() != 64
-            || !hash.chars().all(|ch| ch.is_ascii_hexdigit())
-        {
-            return Err("Could not calculate installer SHA-256".into());
-        }
+        let hash = file_sha256(&path)?;
         manifest.push_str(&format!(
             "{hash}  {}\n",
             path.file_name()
@@ -595,20 +579,7 @@ fn package_model(root: &Path) -> Result<PathBuf> {
 }
 
 fn verify_model(path: &Path) -> Result {
-    let output = if cfg!(windows) {
-        Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", "(Get-FileHash -Algorithm SHA256 -LiteralPath $env:YTU_CHECKSUM_PATH).Hash.ToLowerInvariant()"]).env("YTU_CHECKSUM_PATH", path).output()?
-    } else {
-        Command::new("shasum")
-            .args(["-a", "256"])
-            .arg(path)
-            .output()?
-    };
-    if !output.status.success()
-        || String::from_utf8_lossy(&output.stdout)
-            .split_whitespace()
-            .next()
-            != Some(MODEL_SHA256)
-    {
+    if file_sha256(path)? != MODEL_SHA256 {
         return Err(format!(
             "Missing or unexpected BS-RoFormer model: {}",
             path.display()
@@ -616,6 +587,20 @@ fn verify_model(path: &Path) -> Result {
         .into());
     }
     Ok(())
+}
+
+fn file_sha256(path: &Path) -> Result<String> {
+    let mut file = fs::File::open(path)?;
+    let mut hash = Sha256::new();
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let length = file.read(&mut buffer)?;
+        if length == 0 {
+            break;
+        }
+        hash.update(&buffer[..length]);
+    }
+    Ok(format!("{:x}", hash.finalize()))
 }
 
 fn stage_native_stems(executable: &Path, stage: &Path) -> Result {
@@ -1014,6 +999,31 @@ fn json(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn checksums_are_native_and_do_not_depend_on_shell_output_encoding() {
+        use std::io::Write;
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            env::temp_dir().join(format!("ytu checksum {} {unique}.bin", std::process::id()));
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"abc").unwrap();
+        drop(file);
+        let actual = file_sha256(&path);
+        fs::remove_file(&path).unwrap();
+        assert_eq!(
+            actual.unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert!(file_sha256(&path).is_err());
+    }
+
     #[test]
     fn windows_paths_and_installer_source_are_escaped_without_shell_interpolation() {
         assert_eq!(
