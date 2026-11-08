@@ -14,6 +14,11 @@ use std::{
 const RATE: f64 = 44_100.0;
 const PADDING: usize = 1024;
 const BLOCK: usize = 441;
+// soxr-sys 0.1.3's vr32.c publishes fade_coefs[0] before completing its other
+// process-global coefficient tables. Serialize creation through the complete
+// C call; our nonzero ratio/channels force native initialization before return.
+// Existing, initialized instances continue processing concurrently.
+static SOXR_CREATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct RemapReport {
@@ -228,6 +233,9 @@ impl Soxr {
         Self::create(ratio, channels, false)
     }
     fn create(maximum_ratio: f64, channels: usize, variable: bool) -> Result<Self> {
+        let _initialization = SOXR_CREATION
+            .lock()
+            .map_err(|_| invalid("Falló la inicialización de SoXR."))?;
         // SAFETY: specs are produced by the linked C API; all pointers live
         // through create(), which copies the specs into its owned instance.
         unsafe {
@@ -346,5 +354,82 @@ fn soxr_error(error: soxr_sys::soxr_error_t) -> Result<()> {
                 .to_string_lossy()
                 .into_owned(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn concurrent_cold_start_produces_identical_audio_and_markers() {
+        const CHILD: &str = "YTU_TEST_SOXR_COLD_START";
+        if std::env::var_os(CHILD).is_none() {
+            // A fresh process is necessary: another test may already have
+            // initialized the native library's global coefficient tables.
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "remap::tests::concurrent_cold_start_produces_identical_audio_and_markers",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "cold-start regression failed:\n{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let input: Arc<Vec<f64>> = Arc::new(
+            (0..44_100)
+                .flat_map(|i| {
+                    let phase = TAU * i as f64 / RATE;
+                    [
+                        (phase * 440.0).sin(),
+                        (phase * 440.0).sin() * 0.5,
+                        phase.sin(),
+                        phase.cos(),
+                    ]
+                })
+                .collect(),
+        );
+        let barrier = Arc::new(Barrier::new(16));
+        let process = |input: &[f64]| {
+            let mut stream = Soxr::new(1.021, 4).unwrap();
+            stream.ratio(1.0163, 0).unwrap();
+            stream.chunk(input, true).unwrap()
+        };
+        let workers: Vec<_> = (0..16)
+            .map(|_| {
+                let input = input.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    process(&input)
+                })
+            })
+            .collect();
+        let outputs: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect();
+        let expected = process(&input);
+        for output in outputs {
+            assert_eq!(output.len(), expected.len());
+            let error = output
+                .iter()
+                .zip(&expected)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0_f64, f64::max);
+            assert_eq!(
+                error, 0.0,
+                "concurrent initialization altered audio/markers"
+            );
+        }
     }
 }
