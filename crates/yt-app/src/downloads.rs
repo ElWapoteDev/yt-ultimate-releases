@@ -1,8 +1,8 @@
 //! Durable download jobs. Signed URLs and connection credentials stay in memory;
 //! all partial media remains outside the managed library.
-use crate::state::{download_view, AppState};
+use crate::state::{AppState, download_view};
 use dioxus::prelude::*;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
     fs::{File, OpenOptions},
@@ -599,18 +599,22 @@ fn cache_directory(profile: &Path, id: &str) -> DownloadResult<PathBuf> {
 }
 fn remove_cache(profile: &Path, id: &str, library: &Path) -> DownloadResult<()> {
     let path = cache_directory(profile, id)?;
+    let lock = lock_cache(&path)?;
     if !path.exists() {
         return Ok(());
     }
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(path.join("owner.lock"))
-        .map_err(|e| e.to_string())?;
-    lock.try_lock()
-        .map_err(|_| "La descarga sigue activa".to_owned())?;
+    // Older versions kept the owner handle inside the directory. Check it, but
+    // do not retain an open child while renaming its parent on Windows.
+    if path.join("owner.lock").exists() {
+        let legacy = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path.join("owner.lock"))
+            .map_err(|e| e.to_string())?;
+        legacy
+            .try_lock()
+            .map_err(|_| "La descarga sigue activa".to_owned())?;
+    }
     let publication = path.join("publication.json");
     if publication.exists() {
         cleanup_staging(library, &path, &read_json(&publication)?)?;
@@ -623,6 +627,32 @@ fn remove_cache(profile: &Path, id: &str, library: &Path) -> DownloadResult<()> 
     drop(lock);
     tombstone.close().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn lock_cache(directory: &Path) -> DownloadResult<File> {
+    let parent = directory.parent().ok_or("Caché no válida")?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    // Keep this stable inode outside the deletable cache. Removing a lock file
+    // would let concurrent retries lock different inodes for the same cache.
+    let path = directory.with_extension("lock");
+    if path.exists()
+        && !std::fs::symlink_metadata(&path)
+            .map_err(|e| e.to_string())?
+            .file_type()
+            .is_file()
+    {
+        return Err("El bloqueo de la descarga no es un archivo seguro".into());
+    }
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|e| e.to_string())?;
+    lock.try_lock()
+        .map_err(|_| "La descarga sigue activa".to_owned())?;
+    Ok(lock)
 }
 fn item_from_payload(value: &Value) -> SearchResult {
     let text = |key| value[key].as_str().unwrap_or_default().to_owned();
@@ -702,16 +732,8 @@ async fn run_download(
         });
     }
     let directory = cache_directory(profile, cache_key)?;
+    let lock = lock_cache(&directory)?;
     std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(directory.join("owner.lock"))
-        .map_err(|e| e.to_string())?;
-    lock.try_lock()
-        .map_err(|_| "Otro intento está usando esta descarga parcial".to_owned())?;
     let plan_path = directory.join("source.json");
     let plan = if plan_path.exists() {
         read_json(&plan_path)?
@@ -1449,9 +1471,11 @@ mod tests {
                 "{template}"
             );
         }
-        assert!(!render_name("../{channel}/song", &item, false, "192")
-            .unwrap()
-            .contains('/'));
+        assert!(
+            !render_name("../{channel}/song", &item, false, "192")
+                .unwrap()
+                .contains('/')
+        );
     }
     #[test]
     fn publication_recovers_after_crash_without_overwriting_originals() {
@@ -1611,8 +1635,13 @@ mod tests {
         assert!(remove_cache(profile.path(), id, &profile.path().join("library")).is_err());
         assert!(directory.join("source").exists());
         drop(lock);
+        let external_lock = lock_cache(&directory).unwrap();
+        assert!(remove_cache(profile.path(), id, &profile.path().join("library")).is_err());
+        assert!(directory.join("source").exists());
+        drop(external_lock);
         remove_cache(profile.path(), id, &profile.path().join("library")).unwrap();
         assert!(!directory.exists());
+        assert!(directory.with_extension("lock").is_file());
         assert_eq!(
             std::fs::read(profile.path().join("original.mp3")).unwrap(),
             b"original"
@@ -1746,9 +1775,11 @@ mod tests {
         assert_eq!(ready.track.extension, "mp3");
         assert_eq!(ready.subtitle_files.len(), 1);
         assert!(ready.warnings.is_empty(), "{:?}", ready.warnings);
-        assert!(std::fs::read_to_string(&ready.subtitle_files[0])
-            .unwrap()
-            .starts_with("WEBVTT"));
+        assert!(
+            std::fs::read_to_string(&ready.subtitle_files[0])
+                .unwrap()
+                .starts_with("WEBVTT")
+        );
         let metadata = core.media_metadata(&ready.track.id).unwrap();
         assert!(metadata.artwork_path.is_some());
         assert!(!metadata.artist.unwrap().is_empty());
@@ -1756,7 +1787,11 @@ mod tests {
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].language, "en");
         assert!(tracks[0].default);
-        println!("APP audio pipeline: {} MP3 bytes, embedded artwork/title/artist, {} visible subtitle track",ready.track.size_bytes,tracks.len());
+        println!(
+            "APP audio pipeline: {} MP3 bytes, embedded artwork/title/artist, {} visible subtitle track",
+            ready.track.size_bytes,
+            tracks.len()
+        );
     }
     #[test]
     fn restart_cleans_only_the_owned_interrupted_publication() {
@@ -1798,12 +1833,14 @@ mod tests {
             &json!({"cache_id":"different"}),
         )
         .unwrap();
-        assert!(cleanup_staging(
-            &library,
-            &cache,
-            &json!({"staging":".ytu-publishing-unrelated"})
-        )
-        .is_err());
+        assert!(
+            cleanup_staging(
+                &library,
+                &cache,
+                &json!({"staging":".ytu-publishing-unrelated"})
+            )
+            .is_err()
+        );
         assert!(unrelated.join("original").exists());
     }
 }

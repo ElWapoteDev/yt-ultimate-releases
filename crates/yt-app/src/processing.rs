@@ -526,6 +526,11 @@ fn publish(
         file.write_all(&buffer[..count])
             .map_err(|e| e.to_string())?;
     }
+    drop(reader);
+    // Metadata is committed by replacing this private path. Close its original
+    // handle first: Windows cannot replace every open destination, and syncing
+    // that old handle afterwards would not flush the newly tagged file.
+    let file = file.into_temp_path();
     if core
         .settings()
         .map_err(|error| error.to_string())?
@@ -535,10 +540,14 @@ fn publish(
             .media_metadata(&track.id)
             .map_err(|error| error.to_string())?;
         metadata.title = Some(title.clone());
-        yt_audio::copy_metadata(&track.path, file.path(), &metadata, token)
-            .map_err(|error| error.to_string())?;
+        yt_audio::copy_metadata(&track.path, &file, &metadata, token)
+            .map_err(|error| format!("No se pudieron guardar las etiquetas: {error}"))?;
     }
-    file.as_file().sync_all().map_err(|e| e.to_string())?;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .and_then(|file| file.sync_all())
+        .map_err(|error| format!("No se pudo guardar el resultado: {error}"))?;
     if token.is_cancelled() {
         return Err("Procesamiento cancelado".into());
     }
