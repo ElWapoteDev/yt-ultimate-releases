@@ -1,8 +1,8 @@
 //! Durable download jobs. Signed URLs and connection credentials stay in memory;
 //! all partial media remains outside the managed library.
-use crate::state::{AppState, download_view};
+use crate::state::{download_view, AppState};
 use dioxus::prelude::*;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet},
     fs::{File, OpenOptions},
@@ -1471,11 +1471,9 @@ mod tests {
                 "{template}"
             );
         }
-        assert!(
-            !render_name("../{channel}/song", &item, false, "192")
-                .unwrap()
-                .contains('/')
-        );
+        assert!(!render_name("../{channel}/song", &item, false, "192")
+            .unwrap()
+            .contains('/'));
     }
     #[test]
     fn publication_recovers_after_crash_without_overwriting_originals() {
@@ -1775,11 +1773,9 @@ mod tests {
         assert_eq!(ready.track.extension, "mp3");
         assert_eq!(ready.subtitle_files.len(), 1);
         assert!(ready.warnings.is_empty(), "{:?}", ready.warnings);
-        assert!(
-            std::fs::read_to_string(&ready.subtitle_files[0])
-                .unwrap()
-                .starts_with("WEBVTT")
-        );
+        assert!(std::fs::read_to_string(&ready.subtitle_files[0])
+            .unwrap()
+            .starts_with("WEBVTT"));
         let metadata = core.media_metadata(&ready.track.id).unwrap();
         assert!(metadata.artwork_path.is_some());
         assert!(!metadata.artist.unwrap().is_empty());
@@ -1833,14 +1829,12 @@ mod tests {
             &json!({"cache_id":"different"}),
         )
         .unwrap();
-        assert!(
-            cleanup_staging(
-                &library,
-                &cache,
-                &json!({"staging":".ytu-publishing-unrelated"})
-            )
-            .is_err()
-        );
+        assert!(cleanup_staging(
+            &library,
+            &cache,
+            &json!({"staging":".ytu-publishing-unrelated"})
+        )
+        .is_err());
         assert!(unrelated.join("original").exists());
     }
 }
