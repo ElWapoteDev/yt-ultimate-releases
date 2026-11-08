@@ -1,0 +1,27 @@
+[workspace]
+members = ["crates/yt-core", "crates/yt-media", "crates/yt-audio", "crates/yt-quality", "crates/yt-plugins", "crates/yt-updater", "crates/yt-app", "crates/xtask"]
+default-members = ["crates/yt-app"]
+resolver = "2"
+exclude = ["vendor/mp3lame-sys", "vendor/torch-sys"]
+
+[workspace.package]
+version = "5.0.0"
+edition = "2021"
+rust-version = "1.89"
+license = "LicenseRef-Proprietary"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+debug = 0
+incremental = false
+
+[patch.crates-io]
+mp3lame-sys = { path = "vendor/mp3lame-sys" }
+
+[patch."https://github.com/LaurentMazare/tch-rs"]
+torch-sys = { path = "vendor/torch-sys" }
+

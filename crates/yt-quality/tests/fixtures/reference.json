@@ -1,0 +1,99 @@
+{
+  "eq": {
+    "method": "dynamic_spectral_eq",
+    "version": 1,
+    "seed_sha256": "a65359afd0b19f74a2555bbfb486837549916fdfc916f8a8a3e5f68f2556ba6b",
+    "max_gain_db": 6.0,
+    "sample_rate": 44100,
+    "channels": 2,
+    "frames": 44237,
+    "fft_size": 2048,
+    "hop_size": 512,
+    "window": "sqrt_periodic_hann",
+    "band_centers_hz": [
+      100,
+      220,
+      500,
+      1100,
+      2500,
+      5500,
+      11000
+    ],
+    "band_width_octaves": 0.55,
+    "modulation_rates_hz": [
+      0.2318074311436637,
+      0.253505760280766,
+      0.31456015869382775,
+      0.15780117494468607,
+      0.2720088502327001,
+      0.3194064240482185,
+      0.25247119859617
+    ],
+    "phases_radians": [
+      2.0530728643922127,
+      4.303744644144113,
+      4.364241934581746,
+      2.8623559524810642,
+      2.101777497581306,
+      4.69664146857109,
+      3.3061625411273496
+    ]
+  },
+  "remap": {
+    "method": "shared_smooth_remap",
+    "version": 1,
+    "soxr_version": "1.1.0",
+    "quality": "HQ",
+    "base_pitch_semitones": 0.28,
+    "modulation_amplitudes_semitones": [
+      0.05,
+      0.03
+    ],
+    "modulation_periods_seconds": [
+      13.0,
+      23.0
+    ],
+    "modulation_phases_radians": [
+      0.0,
+      1.1
+    ],
+    "edge_taper_seconds": 3.0,
+    "input_frames": 44237,
+    "output_frames": 43526,
+    "sample_rate": 44100,
+    "channels": 2,
+    "mean_speed_ratio": 1.0163350640996187,
+    "shared_gain": 1.0,
+    "shared_gain_db": 0.0,
+    "true_peak_method": "scipy_resample_poly_8x_kaiser5",
+    "true_peak_target_dbtp": -1.1,
+    "max_allowed_true_peak_dbtp": -1.0,
+    "pre_gain_true_peak_dbtp": -2.3345894680119947,
+    "map_method": "quadrature_1hz_estimate",
+    "map_first_source_sample": 0.826638070509787,
+    "map_last_source_sample": 44235.747623762436,
+    "map_min_increment": 1.0104303324842476,
+    "map_max_increment": 1.022424858483646,
+    "measured_pitch_min_cents": 27.99859925724033,
+    "measured_pitch_max_cents": 28.02016720183279,
+    "measured_pitch_window_frames": 2205,
+    "marker_amplitude_max_error": 0.00016432664325671809,
+    "padding_input_frames_each_end": 1024,
+    "input_block_frames": 441,
+    "initial_ratio": 1.016304932168189,
+    "constructor_max_ratio": 1.0210121257071934,
+    "initial_slew": 0,
+    "slew_convention": "output_samples",
+    "flush_calls": 1,
+    "raw_output_frames_with_padding": 45542,
+    "removed_output_prefix": 1010,
+    "removed_output_suffix": 1006,
+    "reported_delay_after_flush": 100.0
+  },
+  "peak": {
+    "method": "scipy_resample_poly_8x_kaiser5",
+    "oversampling": 8,
+    "peak_linear": 0.7602070772606865,
+    "peak_dbtp": -2.381361831702343
+  }
+}

@@ -1,0 +1,13 @@
+YT Ultimate — Licencia de distribución
+
+Esta aplicación se distribuye para uso personal y legítimo. La persona usuaria es
+responsable de respetar los derechos de autor, los términos de los servicios de
+origen y las leyes aplicables al contenido que descargue o procese.
+
+YT Ultimate incluye software de terceros con sus propias licencias. Los avisos de
+FFmpeg, FFprobe, Electron, Python y demás componentes se incluyen dentro del
+paquete de la aplicación.
+
+Los plugins locales del modo desarrollador se ejecutan con los permisos de la
+persona usuaria. Instala únicamente plugins cuyo código entiendas y en los que
+confíes.

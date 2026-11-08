@@ -1,0 +1,110 @@
+name: Rust desktop
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      signed:
+        description: Sign and notarize installers using configured certificate secrets
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            name: macos-arm64
+          - os: macos-15-intel
+            name: macos-x64
+          - os: windows-2022
+            name: windows-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TERM_COLOR: always
+      MACOSX_DEPLOYMENT_TARGET: '12.0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+      - name: Check native build prerequisites
+        run: cmake --version
+      - name: Configure Windows libclang for SoundTouch bindings
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $llvmBin = 'C:\Program Files\LLVM\bin'
+          if (-not (Test-Path (Join-Path $llvmBin 'libclang.dll'))) { throw 'LLVM libclang.dll is required for the native SoundTouch bindings' }
+          "LIBCLANG_PATH=$llvmBin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Format, test and lint
+        run: cargo run --locked -p xtask -- check
+      - name: Compile desktop executable
+        run: cargo build --locked --release -p yt-app --bin yt-ultimate
+
+      - name: Install pinned packager
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        run: cargo install cargo-packager --version 0.11.8 --locked --root target/packager-tools
+
+      - name: Import Windows signing certificate
+        if: runner.os == 'Windows' && github.event_name == 'workflow_dispatch' && inputs.signed
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE) { throw 'Missing WINDOWS_CERTIFICATE secret' }
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'ytu-signing.pfx'
+          try {
+            [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+            $certificatePassword = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+            Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $certificatePassword | Out-Null
+          } finally {
+            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Package unsigned test installers
+        if: (github.event_name == 'workflow_dispatch' && !inputs.signed) || startsWith(github.ref, 'refs/tags/')
+        run: cargo run --locked -p xtask -- package
+
+      - name: Package signed installers
+        if: github.event_name == 'workflow_dispatch' && inputs.signed
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
+          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+        run: cargo run --locked -p xtask -- package --signed
+
+      - name: Upload installers for review
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: YT-Ultimate-${{ matrix.name }}-${{ github.sha }}
+          path: |
+            target/packages/**/*.dmg
+            target/packages/**/*.msi
+            target/packages/**/*.exe
+            target/packages/**/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14

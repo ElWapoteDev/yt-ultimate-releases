@@ -1,0 +1,29 @@
+[package]
+name = "yt-media"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Native audio, YouTube resolution and cancellable downloads for YT Ultimate"
+license.workspace = true
+
+[features]
+default = []
+native-stems = ["dep:tch", "dep:hound"]
+
+[dependencies]
+futures-util = "0.3"
+innertube-rs = "0.10.1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+rodio = { version = "0.21.1", default-features = false, features = ["playback", "symphonia-all"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+symphonia = { version = "0.5.5", features = ["all"] }
+symphonia-adapter-libopus = "0.2.9"
+tempfile = "3"
+thiserror = "2"
+tch = { git = "https://github.com/LaurentMazare/tch-rs", rev = "bbf49e6", optional = true }
+hound = { version = "3.5", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "fs", "io-util", "macros"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+url = "2"
+

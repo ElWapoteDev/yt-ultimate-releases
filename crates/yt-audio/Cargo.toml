@@ -1,0 +1,19 @@
+[package]
+name = "yt-audio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+yt-media = { path = "../yt-media" }
+rodio = { version = "0.21.1", default-features = false }
+mp3lame-encoder = "0.2.5"
+flacenc = "0.5.1"
+hound = "3.5"
+tempfile = "3"
+thiserror = "2"
+rusty-chromaprint = "0.3"
+soundtouch = "0.5.4"
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }

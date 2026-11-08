@@ -1,0 +1,30 @@
+{
+  "api_version": 1,
+  "author": "",
+  "config_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "greeting": {
+        "default": "Hola",
+        "description": "Text placed before the requested name.",
+        "maxLength": 80,
+        "minLength": 1,
+        "title": "Greeting",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "default_config": {
+    "greeting": "Hola"
+  },
+  "description": "A minimal YT Ultimate developer plugin.",
+  "entrypoint": "plugin.py:setup",
+  "homepage": "",
+  "id": "dev.example.hello",
+  "license": "",
+  "manifest_version": 1,
+  "name": "Hello Example",
+  "permissions": [],
+  "version": "0.1.0"
+}

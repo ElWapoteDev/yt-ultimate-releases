@@ -1,0 +1,40 @@
+[package]
+name = "yt-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "YT Ultimate native Rust desktop application"
+build = "build.rs"
+
+[[bin]]
+name = "yt-ultimate"
+path = "src/main.rs"
+
+[features]
+default = []
+native-stems = ["yt-media/native-stems", "dep:yt-quality"]
+
+[dependencies]
+yt-core = { path = "../yt-core" }
+yt-media = { path = "../yt-media" }
+yt-audio = { path = "../yt-audio" }
+yt-quality = { path = "../yt-quality", optional = true }
+yt-plugins = { path = "../yt-plugins" }
+yt-updater = { path = "../yt-updater" }
+dioxus = { version = "0.7.3", features = ["desktop"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync"] }
+directories = "6"
+chrono = "0.4"
+serde_json = "1"
+rfd = "0.15"
+rand = "0.9"
+url = "2"
+tempfile = "3"
+
+[dev-dependencies]
+dioxus-ssr = "0.7.3"
+tempfile = "3"
+
+[build-dependencies]
+winresource = "=0.1.34"
+
