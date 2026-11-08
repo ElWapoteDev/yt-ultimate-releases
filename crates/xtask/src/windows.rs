@@ -134,10 +134,14 @@ pub fn verify_dependencies(executable: &Path, libraries: &[PathBuf]) -> Result {
         })
         .collect();
     for path in std::iter::once(executable).chain(libraries.iter().map(PathBuf::as_path)) {
-        for name in imports(path)? {
-            if !system_dll(&name) && !available.contains_key(&name) {
-                return Err(format!("{} needs unbundled DLL {name}", path.display()).into());
-            }
+        let dependencies = imports(path)?;
+        println!("{} imports: {}", path.display(), dependencies.join(", "));
+        let missing: Vec<_> = dependencies
+            .iter()
+            .filter(|name| !system_dll(name) && !available.contains_key(*name))
+            .collect();
+        if !missing.is_empty() {
+            return Err(format!("{} needs unbundled DLLs: {missing:?}", path.display()).into());
         }
     }
     println!("Verified Windows x64 native DLLs and their transitive imports; Python is excluded.");
@@ -161,6 +165,9 @@ fn system_dll(name: &str) -> bool {
                 | "shlwapi.dll"
                 | "ole32.dll"
                 | "oleaut32.dll"
+                // Windows Runtime activation/HSTRING API, supplied by Windows 8+.
+                // https://learn.microsoft.com/windows/win32/api/roapi/nf-roapi-getactivationfactory
+                | "combase.dll"
                 | "comctl32.dll"
                 | "dwmapi.dll"
                 | "ws2_32.dll"
