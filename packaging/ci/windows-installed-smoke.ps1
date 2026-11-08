@@ -1,0 +1,153 @@
+param(
+    [Parameter(Mandatory = $true)][string]$Installer,
+    [string]$StemsProbe,
+    [string]$QualityProbe,
+    [string]$ResultsDirectory = 'target/ci-results/windows-installed'
+)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$Installer = (Resolve-Path -LiteralPath $Installer).Path
+$ResultsDirectory = [IO.Path]::GetFullPath($ResultsDirectory)
+New-Item -ItemType Directory -Force -Path $ResultsDirectory | Out-Null
+$temporaryRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
+$testRoot = Join-Path $temporaryRoot "ytu-smoke-$([Guid]::NewGuid().ToString('N'))"
+$installDirectory = Join-Path $testRoot 'App with spaces'
+$profilePath = Join-Path $testRoot 'isolated-profile'
+$libraryPath = Join-Path $testRoot 'isolated-library'
+$registryKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\YT Ultimate'
+if (Test-Path -LiteralPath $registryKey) { throw 'Refusing to disturb an existing YT Ultimate installation' }
+foreach ($association in @('YTUltimate.Audio', 'YTUltimate.Video', 'YTUltimate.Playlist')) {
+    if (Test-Path -LiteralPath "HKCU:\Software\Classes\$association") { throw "An existing association must not be overwritten by this test: $association" }
+}
+New-Item -ItemType Directory -Force -Path $testRoot, $profilePath, $libraryPath | Out-Null
+$result = [ordered]@{
+    installer = $Installer
+    installer_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $Installer).Hash.ToLowerInvariant()
+    os = [Environment]::OSVersion.VersionString
+    installation_completed = $false
+    isolated_gui_started = $false
+    webview2_child_started = $false
+    database_created = $false
+    associations_verified = $false
+    cpu_stems_passed = $false
+    cpu_quality_passed = $false
+    graceful_exit = $false
+    uninstall_completed = $false
+}
+$appProcess = $null
+$failure = $null
+
+function New-IsolatedProcess([string]$Executable, [string[]]$Arguments = @()) {
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $Executable
+    $start.WorkingDirectory = $installDirectory
+    $start.UseShellExecute = $false
+    foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
+    foreach ($key in @('LIBTORCH', 'LIBTORCH_USE_PYTORCH', 'LIBTORCH_BYPASS_VERSION_CHECK', 'LIBCLANG_PATH', 'PYTHONPATH', 'PYTHONHOME', 'CARGO_MANIFEST_DIR', 'DYLD_LIBRARY_PATH')) {
+        [void]$start.Environment.Remove($key)
+    }
+    $start.Environment['PATH'] = "$env:WINDIR\System32;$env:WINDIR"
+    $start.Environment['YTU_DATA_DIR'] = $profilePath
+    $start.Environment['YTU_LIBRARY_DIR'] = $libraryPath
+    $start.Environment['OMP_NUM_THREADS'] = '2'
+    $start.Environment['MKL_NUM_THREADS'] = '2'
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    return [Diagnostics.Process]::Start($start)
+}
+
+function Invoke-InstalledProbe([string]$Source, [string]$Name, [string[]]$Arguments) {
+    $destination = Join-Path $installDirectory "$Name.exe"
+    Copy-Item -LiteralPath (Resolve-Path -LiteralPath $Source).Path -Destination $destination
+    $probe = New-IsolatedProcess $destination $Arguments
+    $stdout = $probe.StandardOutput.ReadToEndAsync()
+    $stderr = $probe.StandardError.ReadToEndAsync()
+    try {
+        if (-not $probe.WaitForExit(300000)) { $probe.Kill($true); throw "$Name exceeded five minutes" }
+        $stdout.Result | Out-File -LiteralPath (Join-Path $ResultsDirectory "$Name.stdout.log") -Encoding utf8
+        $stderr.Result | Out-File -LiteralPath (Join-Path $ResultsDirectory "$Name.stderr.log") -Encoding utf8
+        if ($probe.ExitCode -ne 0) { throw "$Name failed with exit code $($probe.ExitCode): $($stderr.Result)" }
+        Write-Output $stdout.Result
+    } finally {
+        if (-not $probe.HasExited) { $probe.Kill($true); $probe.WaitForExit() }
+        Remove-Item -LiteralPath $destination -Force
+        $probe.Dispose()
+    }
+}
+
+try {
+    # NSIS requires /D to be last and unquoted; the remainder is the path.
+    $setup = Start-Process -FilePath $Installer -ArgumentList "/S /D=$installDirectory" -PassThru
+    if (-not $setup.WaitForExit(300000)) { $setup.Kill($true); throw 'Silent installation exceeded five minutes' }
+    if ($setup.ExitCode -ne 0) { throw "Silent installation failed: $($setup.ExitCode)" }
+    $executable = Join-Path $installDirectory 'yt-ultimate.exe'
+    $model = Join-Path $installDirectory 'models/bs-roformer-v1.pt'
+    if (-not (Test-Path -LiteralPath $executable)) { throw 'Installed executable is missing' }
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $model).Hash.ToLowerInvariant() -ne '31d794ab054bd70964b6165ceca3b94e00f344f8a0b8bc325def47ce9aa14926') { throw 'Installed model hash mismatch' }
+    $result.installation_completed = $true
+    foreach ($association in @('YTUltimate.Audio', 'YTUltimate.Video', 'YTUltimate.Playlist')) {
+        $command = (Get-Item -LiteralPath "HKCU:\Software\Classes\$association\shell\open\command").GetValue('')
+        if ($command -ne "`"$executable`" `"%1`"") { throw "Incorrect association command: $command" }
+    }
+    $result.associations_verified = $true
+    $appProcess = New-IsolatedProcess $executable
+    $appStdout = $appProcess.StandardOutput.ReadToEndAsync()
+    $appStderr = $appProcess.StandardError.ReadToEndAsync()
+    $deadline = [DateTime]::UtcNow.AddSeconds(45)
+    do {
+        Start-Sleep -Milliseconds 500
+        $appProcess.Refresh()
+        if ($appProcess.HasExited) { throw "Installed application exited early: $($appProcess.ExitCode); $($appStderr.Result)" }
+        $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($appProcess.Id)")
+        $result.webview2_child_started = @($children | Where-Object Name -eq 'msedgewebview2.exe').Count -gt 0
+        $result.database_created = Test-Path -LiteralPath (Join-Path $profilePath 'yt-ultimate.sqlite3')
+        $result.isolated_gui_started = $appProcess.MainWindowHandle -ne [IntPtr]::Zero
+    } until (($result.isolated_gui_started -and $result.webview2_child_started -and $result.database_created) -or [DateTime]::UtcNow -ge $deadline)
+    if (-not ($result.isolated_gui_started -and $result.webview2_child_started -and $result.database_created)) { throw 'Expected window, WebView2 child and isolated SQLite database were not all observed' }
+    $result.window_title = $appProcess.MainWindowTitle
+    Start-Sleep -Seconds 5
+    if ($appProcess.HasExited) { throw 'Application exited during the startup observation period' }
+    if (-not $appProcess.CloseMainWindow()) { throw 'Could not request a normal window close' }
+    if (-not $appProcess.WaitForExit(30000)) { throw 'Application did not exit after closing its main window' }
+    if ($appProcess.ExitCode -ne 0) { throw "Application closed with exit code $($appProcess.ExitCode)" }
+    $result.graceful_exit = $true
+    $appStdout.Result | Out-File -LiteralPath (Join-Path $ResultsDirectory 'app.stdout.log') -Encoding utf8
+    $appStderr.Result | Out-File -LiteralPath (Join-Path $ResultsDirectory 'app.stderr.log') -Encoding utf8
+    if ($StemsProbe) {
+        Invoke-InstalledProbe $StemsProbe 'stems-probe' @($model, '9')
+        $result.cpu_stems_passed = $true
+    }
+    if ($QualityProbe) {
+        Invoke-InstalledProbe $QualityProbe 'quality-probe' @($model)
+        $result.cpu_quality_passed = $true
+    }
+} catch {
+    $failure = $_
+    $result.failure = $_.Exception.ToString()
+} finally {
+    if ($null -ne $appProcess -and -not $appProcess.HasExited) {
+        [void]$appProcess.CloseMainWindow()
+        if (-not $appProcess.WaitForExit(10000)) { $appProcess.Kill($true); $appProcess.WaitForExit() }
+    }
+    try {
+        $uninstaller = Join-Path $installDirectory 'uninstall.exe'
+        if (Test-Path -LiteralPath $uninstaller) {
+            $remove = Start-Process -FilePath $uninstaller -ArgumentList "/S _?=$installDirectory" -PassThru
+            if (-not $remove.WaitForExit(120000)) { $remove.Kill($true); throw 'Uninstaller timed out' }
+            if ($remove.ExitCode -ne 0) { throw "Uninstaller failed: $($remove.ExitCode)" }
+            if ((Test-Path -LiteralPath (Join-Path $installDirectory 'yt-ultimate.exe')) -or (Test-Path -LiteralPath $registryKey)) { throw 'Uninstaller left the application executable or registration' }
+            foreach ($association in @('YTUltimate.Audio', 'YTUltimate.Video', 'YTUltimate.Playlist')) {
+                if (Test-Path -LiteralPath "HKCU:\Software\Classes\$association") { throw "Uninstaller left association $association" }
+            }
+            $result.uninstall_completed = $true
+        }
+    } catch {
+        $result.cleanup_failure = $_.Exception.ToString()
+        if ($null -eq $failure) { $failure = $_ }
+    }
+    $result | ConvertTo-Json -Depth 5 | Out-File -LiteralPath (Join-Path $ResultsDirectory 'result.json') -Encoding utf8
+    $result | ConvertTo-Json -Depth 5 | Write-Output
+}
+if ($null -ne $failure) { throw $failure }
+if (-not $result.uninstall_completed) { throw 'Successful installation/uninstallation was not demonstrated' }

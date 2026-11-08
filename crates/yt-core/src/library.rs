@@ -111,7 +111,7 @@ impl AppCore {
                 "external" if storage_kind == "reference" => Some(PathBuf::from(relative)),
                 _ => None,
             };
-            if let Some(path) = candidate.and_then(&valid) {
+            if let Some(path) = candidate.and_then(valid) {
                 return Ok(Some(path));
             }
         }

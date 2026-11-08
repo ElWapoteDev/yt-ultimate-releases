@@ -59,7 +59,7 @@ fn verify_webview2_bootstrapper(path: &Path) -> Result {
     let output = if cfg!(windows) {
         Command::new("powershell").args([
             "-NoProfile", "-NonInteractive", "-Command",
-            "$ErrorActionPreference='Stop'; $signature=Get-AuthenticodeSignature -LiteralPath $env:YTU_BOOTSTRAPPER_PATH; if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'CN=Microsoft Corporation,') { throw 'WebView2 bootstrapper must have a valid Microsoft signature' }; (Get-FileHash -Algorithm SHA256 -LiteralPath $env:YTU_BOOTSTRAPPER_PATH).Hash.ToLowerInvariant()"
+            "$ErrorActionPreference='Stop'; $signature=Get-AuthenticodeSignature -LiteralPath $env:YTU_BOOTSTRAPPER_PATH; if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch '(^|, *)CN=Microsoft Corporation(,|$)') { throw 'WebView2 bootstrapper must have a valid Microsoft signature' }; (Get-FileHash -Algorithm SHA256 -LiteralPath $env:YTU_BOOTSTRAPPER_PATH).Hash.ToLowerInvariant()"
         ]).env("YTU_BOOTSTRAPPER_PATH", path).output()?
     } else {
         Command::new("shasum")
