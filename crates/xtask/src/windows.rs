@@ -25,7 +25,7 @@ pub fn webview2_bootstrapper(root: &Path) -> Result<PathBuf> {
         )?;
         let partial = path.with_extension("exe.download");
         let status = if cfg!(windows) {
-            Command::new("powershell").args([
+            crate::powershell().args([
                 "-NoProfile", "-NonInteractive", "-Command",
                 "$ErrorActionPreference='Stop'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:YTU_BOOTSTRAPPER_URL -OutFile $env:YTU_BOOTSTRAPPER_PATH"
             ]).env("YTU_BOOTSTRAPPER_URL", WEBVIEW2_URL).env("YTU_BOOTSTRAPPER_PATH", &partial).status()?
@@ -57,7 +57,7 @@ pub fn webview2_bootstrapper(root: &Path) -> Result<PathBuf> {
 
 fn verify_webview2_bootstrapper(path: &Path) -> Result {
     if cfg!(windows) {
-        let output = Command::new("powershell").args([
+        let output = crate::powershell().args([
             "-NoProfile", "-NonInteractive", "-Command",
             "$ErrorActionPreference='Stop'; $signature=Get-AuthenticodeSignature -LiteralPath $env:YTU_BOOTSTRAPPER_PATH; if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch '(^|, *)CN=Microsoft Corporation(,|$)') { throw 'WebView2 bootstrapper must have a valid Microsoft signature' }"
         ]).env("YTU_BOOTSTRAPPER_PATH", path).output()?;

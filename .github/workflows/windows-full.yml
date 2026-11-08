@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-full-${{ github.ref }}
+  group: windows-full-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -51,6 +51,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: windows-full-native
+          cache-on-failure: true
       - name: Configure the native Windows toolchain
         shell: pwsh
         run: |
@@ -62,6 +63,8 @@ jobs:
       - name: Prepare pinned LibTorch, model and app-local CRT
         shell: pwsh
         run: ./packaging/ci/prepare-windows-native.ps1
+      - name: Validate packaging dependencies and Microsoft signature before compiling the app
+        run: cargo run --locked -p xtask -- prepare --native-stems --formats nsis
       - name: Test the complete Rust workspace on Windows
         run: cargo test --workspace --locked --features native-stems
       - name: Check formatting and lint the complete feature set

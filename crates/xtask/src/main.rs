@@ -589,6 +589,14 @@ fn verify_model(path: &Path) -> Result {
     Ok(())
 }
 
+// A Rust process started by pwsh inherits PowerShell 7's module directories.
+// Windows PowerShell 5 cannot load those assemblies; let it build its own path.
+fn powershell() -> Command {
+    let mut command = Command::new("powershell");
+    command.env_remove("PSModulePath");
+    command
+}
+
 fn file_sha256(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hash = Sha256::new();
@@ -838,7 +846,7 @@ fn verify_outputs(directory: &Path, formats: &str, signed: bool) -> Result {
             } else if extension == "dmg" {
                 command("hdiutil", [OsStr::new("verify"), path.as_os_str()])?;
             } else if signed && cfg!(windows) {
-                success(Command::new("powershell")
+                success(powershell()
                     .args(["-NoProfile", "-NonInteractive", "-Command", "$signature = Get-AuthenticodeSignature -LiteralPath $env:YTU_SIGNATURE_PATH; if ($signature.Status -ne 'Valid') { Write-Error $signature.StatusMessage; exit 1 }"])
                     .env("YTU_SIGNATURE_PATH", path))?;
             }
@@ -999,6 +1007,20 @@ fn json(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn windows_security_module_loads_when_cargo_is_started_from_pwsh() {
+        let output = powershell().args([
+            "-NoProfile", "-NonInteractive", "-Command",
+            "$ErrorActionPreference='Stop'; Get-AuthenticodeSignature -LiteralPath $env:ComSpec | Out-Null; Get-FileHash -Algorithm SHA256 -LiteralPath $env:ComSpec | Out-Null",
+        ]).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     #[test]
     fn checksums_are_native_and_do_not_depend_on_shell_output_encoding() {
         use std::io::Write;
