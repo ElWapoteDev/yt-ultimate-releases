@@ -122,7 +122,9 @@ fn shared_headroom_preserves_stereo_and_limits_intersample_peak() {
     assert!(report.shared_gain < 1.0);
     let result = read(&out);
     assert!(result
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .all(|v| (v[1] + v[0] * 0.5).abs() < 1e-12));
     assert!(
         estimate_true_peak(out, &CancellationToken::new())
@@ -264,7 +266,11 @@ fn preparation_resamples_with_antialiasing_and_duplicates_mono() {
     assert_eq!(report.input_frames, 48000);
     assert_eq!(report.output_frames, 44100);
     let samples = read(&output);
-    assert!(samples.chunks_exact(2).all(|frame| frame[0] == frame[1]));
+    assert!(samples
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .all(|frame| frame[0] == frame[1]));
     let body = &samples[2000..samples.len() - 2000];
     let rms = (body.iter().map(|v| v * v).sum::<f64>() / body.len() as f64).sqrt();
     assert!(rms < 0.002, "Above-Nyquist tone was not filtered: {rms}");

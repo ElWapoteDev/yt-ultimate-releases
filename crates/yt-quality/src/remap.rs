@@ -116,7 +116,7 @@ pub fn shared_smooth_remap(
         let result = stream.chunk(&block, position + count as u64 == total)?;
         previous_ratio = ratio;
         let mut selected = Vec::with_capacity(result.len() / 2);
-        for frame in result.chunks_exact(4) {
+        for frame in result.as_chunks::<4>().0 {
             if frame.iter().any(|v| !v.is_finite()) {
                 return Err(invalid("El remapeo produjo muestras inválidas."));
             }

@@ -378,6 +378,8 @@ FunctionEnd
 !macroend
 
 Var PassiveMode
+Var YtuLegacyDirectory
+Var YtuLegacyRegistryView
 Function .onInit
   ${GetOptions} $CMDLINE "/P" $PassiveMode
   IfErrors +2 0
@@ -389,7 +391,12 @@ Function .onInit
 
   !insertmacro SetContext
 
+  Call YtuFindLegacyElectron
+
   ${If} $INSTDIR == ""
+    ${If} $YtuLegacyDirectory != ""
+      StrCpy $INSTDIR $YtuLegacyDirectory
+    ${Else}
     ; Set default install location
     !if "${INSTALLMODE}" == "perMachine"
       ${If} ${RunningX64}
@@ -406,6 +413,7 @@ Function .onInit
     !else if "${INSTALLMODE}" == "currentUser"
       StrCpy $INSTDIR "$LOCALAPPDATA\${PRODUCTNAME}"
     !endif
+    ${EndIf}
 
     Call RestorePreviousInstallLocation
   ${EndIf}

@@ -1,5 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$Installer,
+    [string]$LegacyInstaller,
     [string]$StemsProbe,
     [string]$QualityProbe,
     [string]$ResultsDirectory = 'target/ci-results/windows-installed'
@@ -15,6 +16,14 @@ $testRoot = Join-Path $temporaryRoot "ytu-smoke-$([Guid]::NewGuid().ToString('N'
 $installDirectory = Join-Path $testRoot 'App with spaces'
 $profilePath = Join-Path $testRoot 'isolated-profile'
 $libraryPath = Join-Path $testRoot 'isolated-library'
+$legacyRegistryKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\d5cdec52-ef34-5136-a778-fe870ed73415'
+if ($LegacyInstaller) {
+    if ($env:GITHUB_ACTIONS -ne 'true') { throw 'Legacy upgrade testing is restricted to a disposable GitHub Actions runner' }
+    $LegacyInstaller = (Resolve-Path -LiteralPath $LegacyInstaller).Path
+    if (Test-Path -LiteralPath $legacyRegistryKey) { throw 'Refusing to disturb an existing Electron installation' }
+    $profilePath = Join-Path $env:APPDATA 'YT Ultimate'
+    if (Test-Path -LiteralPath $profilePath) { throw 'Refusing to replace an existing default profile' }
+}
 $registryKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\YT Ultimate'
 if (Test-Path -LiteralPath $registryKey) { throw 'Refusing to disturb an existing YT Ultimate installation' }
 foreach ($association in @('YTUltimate.Audio', 'YTUltimate.Video', 'YTUltimate.Playlist')) {
@@ -25,6 +34,12 @@ $result = [ordered]@{
     installer = $Installer
     installer_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $Installer).Hash.ToLowerInvariant()
     os = [Environment]::OSVersion.VersionString
+    legacy_upgrade_requested = [bool]$LegacyInstaller
+    legacy_installation_completed = $false
+    legacy_profile_migrated = $false
+    default_profile_discovered = $false
+    shortcuts_verified = $false
+    profile_preserved_after_uninstall = $false
     installation_completed = $false
     isolated_gui_started = $false
     webview2_child_started = $false
@@ -48,7 +63,7 @@ function New-IsolatedProcess([string]$Executable, [string[]]$Arguments = @()) {
         [void]$start.Environment.Remove($key)
     }
     $start.Environment['PATH'] = "$env:WINDIR\System32;$env:WINDIR"
-    $start.Environment['YTU_DATA_DIR'] = $profilePath
+    if ($LegacyInstaller) { [void]$start.Environment.Remove('YTU_DATA_DIR') } else { $start.Environment['YTU_DATA_DIR'] = $profilePath }
     $start.Environment['YTU_LIBRARY_DIR'] = $libraryPath
     $start.Environment['OMP_NUM_THREADS'] = '2'
     $start.Environment['MKL_NUM_THREADS'] = '2'
@@ -76,9 +91,24 @@ function Invoke-InstalledProbe([string]$Source, [string]$Name, [string[]]$Argume
     }
 }
 
+function Invoke-LegacyFixture([string]$Phase) {
+    python packaging/ci/legacy-profile.py $Phase --profile $profilePath --library $libraryPath --evidence $ResultsDirectory
+    if ($LASTEXITCODE -ne 0) { throw "Legacy profile verification failed: $Phase" }
+}
+
 try {
+    if ($LegacyInstaller) {
+        $legacySetup = Start-Process -FilePath $LegacyInstaller -ArgumentList "/S /D=$installDirectory" -PassThru
+        if (-not $legacySetup.WaitForExit(300000)) { $legacySetup.Kill($true); throw 'Legacy installation timed out' }
+        if ($legacySetup.ExitCode -ne 0) { throw "Legacy installation failed: $($legacySetup.ExitCode)" }
+        if (-not (Test-Path -LiteralPath (Join-Path $installDirectory 'YT Ultimate.exe'))) { throw 'Legacy executable is missing' }
+        if ((Get-ItemPropertyValue -LiteralPath $legacyRegistryKey -Name DisplayVersion) -ne '4.4.1') { throw 'Unexpected legacy version' }
+        $result.legacy_installation_completed = $true
+        Invoke-LegacyFixture 'seed'
+    }
     # NSIS requires /D to be last and unquoted; the remainder is the path.
-    $setup = Start-Process -FilePath $Installer -ArgumentList "/S /D=$installDirectory" -PassThru
+    $setupArguments = if ($LegacyInstaller) { '/S' } else { "/S /D=$installDirectory" }
+    $setup = Start-Process -FilePath $Installer -ArgumentList $setupArguments -PassThru
     if (-not $setup.WaitForExit(300000)) { $setup.Kill($true); throw 'Silent installation exceeded five minutes' }
     if ($setup.ExitCode -ne 0) { throw "Silent installation failed: $($setup.ExitCode)" }
     $executable = Join-Path $installDirectory 'yt-ultimate.exe'
@@ -86,6 +116,23 @@ try {
     if (-not (Test-Path -LiteralPath $executable)) { throw 'Installed executable is missing' }
     if ((Get-FileHash -Algorithm SHA256 -LiteralPath $model).Hash.ToLowerInvariant() -ne '31d794ab054bd70964b6165ceca3b94e00f344f8a0b8bc325def47ce9aa14926') { throw 'Installed model hash mismatch' }
     $result.installation_completed = $true
+    if ($LegacyInstaller) {
+        foreach ($old in @('YT Ultimate.exe', 'Uninstall YT Ultimate.exe', 'resources/app.asar')) {
+            if (Test-Path -LiteralPath (Join-Path $installDirectory $old)) { throw "Legacy application file remains: $old" }
+        }
+        if (Test-Path -LiteralPath $legacyRegistryKey) { throw 'Legacy uninstall registration remains' }
+        Invoke-LegacyFixture 'before'
+        $shell = New-Object -ComObject WScript.Shell
+        $explorer = New-Object -ComObject Shell.Application
+        $shortcuts = @(Get-ChildItem -LiteralPath ([Environment]::GetFolderPath('Desktop')), ([Environment]::GetFolderPath('Programs')) -Filter 'YT Ultimate.lnk' -Recurse)
+        if ($shortcuts.Count -lt 2) { throw 'Expected desktop and Start Menu shortcuts' }
+        foreach ($shortcut in $shortcuts) {
+            if ($shell.CreateShortcut($shortcut.FullName).TargetPath -ne $executable) { throw "Shortcut points to a previous application: $($shortcut.FullName)" }
+            $item = $explorer.Namespace($shortcut.DirectoryName).ParseName($shortcut.Name)
+            if ($item.ExtendedProperty('System.AppUserModel.ID') -ne 'com.ytultimate.desktop') { throw 'Shortcut AppUserModelID changed' }
+        }
+        $result.shortcuts_verified = $true
+    }
     foreach ($association in @('YTUltimate.Audio', 'YTUltimate.Video', 'YTUltimate.Playlist')) {
         $command = (Get-Item -LiteralPath "HKCU:\Software\Classes\$association\shell\open\command").GetValue('')
         if ($command -ne "`"$executable`" `"%1`"") { throw "Incorrect association command: $command" }
@@ -112,6 +159,11 @@ try {
     if (-not $appProcess.WaitForExit(30000)) { throw 'Application did not exit after closing its main window' }
     if ($appProcess.ExitCode -ne 0) { throw "Application closed with exit code $($appProcess.ExitCode)" }
     $result.graceful_exit = $true
+    if ($LegacyInstaller) {
+        Invoke-LegacyFixture 'after'
+        $result.legacy_profile_migrated = $true
+        $result.default_profile_discovered = $true
+    }
     $appStdout.Result | Out-File -LiteralPath (Join-Path $ResultsDirectory 'app.stdout.log') -Encoding utf8
     $appStderr.Result | Out-File -LiteralPath (Join-Path $ResultsDirectory 'app.stderr.log') -Encoding utf8
     if ($StemsProbe) {
@@ -141,6 +193,10 @@ try {
                 if (Test-Path -LiteralPath "HKCU:\Software\Classes\$association") { throw "Uninstaller left association $association" }
             }
             $result.uninstall_completed = $true
+            if ($LegacyInstaller -and $result.legacy_profile_migrated) {
+                Invoke-LegacyFixture 'after'
+                $result.profile_preserved_after_uninstall = $true
+            }
         }
     } catch {
         $result.cleanup_failure = $_.Exception.ToString()

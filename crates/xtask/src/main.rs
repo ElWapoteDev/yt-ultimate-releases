@@ -226,8 +226,10 @@ fn run() -> Result {
             .to_string_lossy()
             .replace('$', "$$")
             .replace('"', "$\\\"");
-        fs::read_to_string(root.join("packaging/windows-webview2.nsh"))?
-            .replace("@WEBVIEW2_BOOTSTRAPPER@", &path)
+        let runtime = fs::read_to_string(root.join("packaging/windows-webview2.nsh"))?
+            .replace("@WEBVIEW2_BOOTSTRAPPER@", &path);
+        let upgrade = fs::read_to_string(root.join("packaging/windows-legacy-upgrade.nsh"))?;
+        format!("{runtime}\n{upgrade}")
     } else {
         String::new()
     };
