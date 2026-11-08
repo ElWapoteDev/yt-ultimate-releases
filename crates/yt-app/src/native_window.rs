@@ -48,7 +48,7 @@ pub(crate) fn WindowControls() -> Element {
         let minimize = window.clone();
         let maximize = window.clone();
         rsx! {
-            style { ".ytu-window-controls{position:fixed;top:0;right:0;height:52px;width:138px;display:flex;z-index:1000000;background:#18181a;color:#f5f5f5;-webkit-app-region:no-drag}.ytu-caption-button{width:46px;height:52px;display:grid;place-items:center;color:inherit;border:0;background:transparent}.ytu-caption-button:hover,.ytu-caption-button.native-hover{background:rgba(255,255,255,.1)}.ytu-caption-close:hover{background:#c42b1c;color:white}.ytu-caption-button:active{background:rgba(255,255,255,.2)}.ytu-caption-close:active{background:#a52216}" }
+            style { {".ytu-window-controls{position:fixed;top:0;right:0;height:52px;width:138px;display:flex;z-index:1000000;background:#18181a;color:#f5f5f5;-webkit-app-region:no-drag}.ytu-caption-button{width:46px;height:52px;display:grid;place-items:center;color:inherit;border:0;background:transparent}.ytu-caption-button:hover,.ytu-caption-button.native-hover{background:rgba(255,255,255,.1)}.ytu-caption-close:hover{background:#c42b1c;color:white}.ytu-caption-button:active{background:rgba(255,255,255,.2)}.ytu-caption-close:active{background:#a52216}"} }
             if !*fullscreen.read() {
                 div { class: "ytu-window-controls", onmousedown: |event| event.stop_propagation(),
                     button { r#type: "button", class: "ytu-caption-button", aria_label: "Minimizar", title: "Minimizar", onclick: move |_| minimize.window.set_minimized(true),

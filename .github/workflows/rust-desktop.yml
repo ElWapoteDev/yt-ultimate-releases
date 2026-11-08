@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rust-desktop-${{ github.workflow }}-${{ github.ref }}
+  group: rust-desktop-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
