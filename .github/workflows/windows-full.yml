@@ -74,8 +74,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo clippy --workspace --all-targets --locked --features native-stems -- -D warnings
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Restore the pinned packager
+        id: packager-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: target/packager-tools
+          key: cargo-packager-0.11.8-${{ runner.os }}-${{ runner.arch }}
       - name: Install the pinned packager
+        if: steps.packager-cache.outputs.cache-hit != 'true'
         run: cargo install cargo-packager --version 0.11.8 --locked --root target/packager-tools
+      - name: Save the packager before application validation
+        if: steps.packager-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: target/packager-tools
+          key: cargo-packager-0.11.8-${{ runner.os }}-${{ runner.arch }}
       - name: Build the Full NSIS installer on Windows
         run: cargo run --locked -p xtask -- package --native-stems --formats nsis
       - name: Build native CPU inference and quality probes

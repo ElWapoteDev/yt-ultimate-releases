@@ -168,6 +168,9 @@ fn system_dll(name: &str) -> bool {
                 // Windows Runtime activation/HSTRING API, supplied by Windows 8+.
                 // https://learn.microsoft.com/windows/win32/api/roapi/nf-roapi-getactivationfactory
                 | "combase.dll"
+                // Windows Imaging Component, supplied by Windows Vista+.
+                // https://learn.microsoft.com/windows/win32/api/wincodec/nf-wincodec-wicconvertbitmapsource
+                | "windowscodecs.dll"
                 | "comctl32.dll"
                 | "dwmapi.dll"
                 | "ws2_32.dll"
