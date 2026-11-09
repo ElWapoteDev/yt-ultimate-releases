@@ -1,8 +1,8 @@
 # YT Ultimate — escritorio Rust
 
-YT Ultimate se está reescribiendo para **macOS y Windows**, conservando la base visual de Electron. Los componentes, el estado y los servicios están escritos en Rust. Android e iPhone quedan aplazados. La versión **5.0.0 está publicada como prerelease**; este código corresponde al desarrollo de **5.0.1** e incorpora funciones posteriores que todavía no forman parte de aquellos instaladores.
+YT Ultimate 5.0.1 es la versión de escritorio para **macOS y Windows**. Conserva los estilos de Electron y reescribe en Rust sus componentes, estado y servicios. Android e iPhone quedan aplazados.
 
-[Descargar la prerelease 5.0.0](https://github.com/ElWapoteDev/yt-ultimate-releases/releases/tag/v5.0.0). Incluye los instaladores Full de Mac ARM64 y Windows x64, sus comprobaciones SHA-256 y las fuentes correspondientes. No se afirma paridad visual completa ni preparación para producción.
+[Descargas de 5.0.1](https://github.com/ElWapoteDev/yt-ultimate-releases/releases/tag/v5.0.1). La publicación incluye los instaladores Full de Mac Apple Silicon, Mac Intel y Windows x64, los hashes SHA-256 y las fuentes correspondientes.
 
 La ejecución nueva no utiliza Electron, React, Node.js ni el servicio Python anterior. Dioxus utiliza WKWebView en Mac y WebView2 en Windows, reutiliza el CSS original e incorpora su puente JavaScript. Un adaptador pequeño conecta el elemento de vídeo del WebView con el estado Rust, incluidos PiP y pantalla completa. También se enlazan bibliotecas nativas como SQLite, QuickJS, libopus, LAME y SoundTouch; la edición completa añade SoXR y LibTorch. «Rust» describe la implementación de la aplicación, no que el WebView, ese adaptador y todas las dependencias estén escritos exclusivamente en Rust.
 
@@ -18,7 +18,7 @@ La ejecución nueva no utiliza Electron, React, Node.js ni el servicio Python an
 - Plugins Rust/WebAssembly API v2 con permisos explícitos, comandos, eventos, estado persistente y acceso acotado a biblioteca. Incluye ejemplos y creación de proyectos Rust/Wasm. Los plugins Python anteriores se conservan sin ejecutarse.
 - Actualizador con comprobación de versión, arquitectura, edición y SHA-256, comprobación y descarga automática configurables, aviso para reiniciar o posponer y opción explícita de instalar al salir. El helper espera el cierre y vuelve a validar el instalador.
 
-Las funciones añadidas después de 5.0.0 se detallan en [Estado de la migración](docs/RUST_MIGRATION.md), junto con sus pruebas y límites. Las pruebas del código nuevo incluyen metadatos, covers, M3U8, plugins, streaming, reanudación, muxing y controles de interfaz. La suite integrada Full de 5.0.1 aprobó 219 pruebas, formato y Clippy. Los informes de instaladores y las notas del release documentan la validación de cada paquete y su commit exacto.
+Las funciones añadidas después de 5.0.0 se detallan en [Estado de la migración](docs/RUST_MIGRATION.md), junto con sus pruebas y límites. Las pruebas del código nuevo incluyen metadatos, covers, M3U8, plugins, streaming, reanudación, muxing y controles de interfaz. La suite Full verifica la aplicación, sus bibliotecas y el empaquetado. Los informes de instaladores y las notas del release documentan la validación de cada paquete y su commit exacto.
 
 ## Ejecutar desde el código
 
@@ -61,9 +61,9 @@ cargo run --locked -p xtask -- package
 
 `check` ejecuta formato, pruebas y Clippy. `package` genera `.app`/`.dmg` en Mac o instaladores Windows según el destino. Los resultados quedan en `target/packages/<destino>/<versión>/`; la edición completa usa `full/` y nombres distintos. Cada generación incluye `SHA256SUMS`.
 
-Los instaladores publicados son **Full 5.0.0**: `YT Ultimate_5.0.0_aarch64_full.dmg` y `yt-ultimate_5.0.0_x64_full-setup.exe`. El primero requiere macOS 14; la configuración base declara macOS 12. El NSIS incluye el bootstrapper oficial de WebView2 y lo instala, con conexión a Internet, únicamente si falta. El modelo y las demás dependencias nativas ya están incluidos.
+Los instaladores de **Full 5.0.1** son un NSIS para Windows x64 y dos DMG para Mac Apple Silicon e Intel. Full requiere macOS 14 o posterior. La configuración base declara macOS 12. El NSIS incluye el bootstrapper oficial de WebView2 y lo instala, con conexión a Internet, únicamente si falta. El modelo y las demás dependencias nativas ya están incluidos.
 
-El instalador Windows publicado pasó instalación silenciosa, arranque con ventana/WebView2, asociaciones y desinstalación en Windows Server 2022 de CI. Eso no acredita pruebas manuales de audio ni todos los flujos de Windows 10/11. Mac ARM64 pasó arranque y flujos de interfaz. Los checkpoints 5.0.1 de Windows e Intel Full ya aprobaron instalación e inferencia con las dependencias empaquetadas; Windows también aprobó la actualización real desde Electron 4.4.1 y su helper de reinstalación. La nueva fuente integrada todavía necesita instaladores finales coincidentes; estas pruebas no amplían retroactivamente los binarios 5.0.0. Los paquetes no tienen firma de distribución ni notarización. Las compilaciones base intermedias están identificadas en `target/intermediate-packages/` y no son los instaladores publicados.
+El instalador Windows publicado pasó instalación silenciosa, arranque con ventana/WebView2, asociaciones y desinstalación en Windows Server 2022 de CI. Eso no acredita pruebas manuales de audio ni todos los flujos de Windows 10/11. Mac ARM64 pasó arranque y flujos de interfaz. Los checkpoints 5.0.1 de Windows e Intel Full ya aprobaron instalación e inferencia con las dependencias empaquetadas; Windows también aprobó la actualización real desde Electron 4.4.1 y su helper de reinstalación. Las notas del release enlazan la validación correspondiente a los instaladores finales. Los paquetes no tienen firma de distribución ni notarización. Las compilaciones base intermedias están identificadas en `target/intermediate-packages/` y no son los instaladores publicados.
 
 ## Código y versión anterior
 

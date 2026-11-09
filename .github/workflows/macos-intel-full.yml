@@ -31,6 +31,15 @@ jobs:
           python-version: '3.12'
       - name: Verify the exact release source before compiling
         run: python3 packaging/ci/source-provenance.py --expected-commit "$SOURCE_COMMIT"
+      # Restore Cargo before writing any model or evidence under target: a
+      # partial cache hit cleans non-Cargo files from that directory.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-intel-full-cpu
+          cache-on-failure: true
       - name: Restore the exact Intel LibTorch build
         id: torch-cache
         uses: actions/cache/restore@v4
@@ -94,13 +103,6 @@ jobs:
           rm "$dmg" "$RUNNER_TEMP/libtorch-2.12.0-macos-x64-cpu.tar.gz"
           printf '%s  %s\n' 31d794ab054bd70964b6165ceca3b94e00f344f8a0b8bc325def47ce9aa14926 target/native-deps/bs-roformer-v1.pt | shasum -a 256 -c -
           echo "YTU_PACKAGE_STEMS_MODEL=$PWD/target/native-deps/bs-roformer-v1.pt" >> "$GITHUB_ENV"
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: macos-intel-full-cpu
-          cache-on-failure: true
       - name: Test and lint the complete native feature set on Intel
         run: |
           cargo test --locked --workspace --features native-stems

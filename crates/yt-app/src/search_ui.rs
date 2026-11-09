@@ -163,7 +163,7 @@ fn SearchRow(item: SearchResult) -> Element {
         }
         div{class:"row__meta",div{class:if active{"row__title row__title--active"}else{"row__title"},"{item.title}"}div{class:"row__sub","{item.channel}" if item.view_count>0{" · {item.view_count} visualizaciones"}}}
         div{class:"row__actions",
-            button{class:"btn-icon",title:if playing{"Pausar"}else{"Reproducir (stream)"},disabled:loading,onclick:move|event|{event.stop_propagation();play_state.play_remote(play_item.clone(),false);},Icon{name:if loading{"loading"}else if playing{"pause"}else{"play"},size:14}}
+            button{class:"btn-icon",title:if playing{"Pausar"}else{"Reproducir (stream)"},disabled:loading,onclick:move|event|{event.stop_propagation();play_state.play_remote(play_item.clone(),false);},Icon{name:if loading{"loading"}else if playing{"pause"}else{"play"},size:14,fill:if loading{"none"}else{"currentColor"}}}
             button{class:"btn-icon",title:"Reproducir a continuación",onclick:move|event|{event.stop_propagation();next_state.queue_remote(next_item.clone());},Icon{name:"list-plus",size:14}}
             DownloadActions{item}
         }

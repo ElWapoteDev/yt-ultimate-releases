@@ -75,11 +75,8 @@ pub fn launch() {
                 .with_disable_context_menu(false)
                 .with_menu(native::menu())
                 .with_custom_event_handler(|event, _| native::capture_open_events(event))
-                .with_background_color(if cfg!(target_os = "macos") {
-                    (0, 0, 0, 0)
-                } else {
-                    (18, 18, 20, 255)
-                })
+                // Match the original BrowserWindow canvas beneath translucent CSS.
+                .with_background_color((18, 18, 20, 255))
                 .with_window(window)
                 .with_icon(
                     dioxus::desktop::icon_from_memory(include_bytes!(

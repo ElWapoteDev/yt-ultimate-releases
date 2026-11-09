@@ -45,6 +45,8 @@ cargo run --locked -p xtask -- package
 
 El comando compila en modo `release`, genera una configuración con rutas absolutas y ejecuta la versión fijada del empaquetador. El destino es `target/packages/<host>/<version>/`. Los iconos originales se conservan en `packaging/icons/`; el identificador sigue siendo `com.ytultimate.desktop`.
 
+El `Info.plist` de Mac declara español e inglés como localizaciones y español como región de desarrollo mediante `packaging/macos/Info.plist`. AppKit puede así seleccionar la localización de sus paneles nativos conforme a las preferencias del sistema, en vez de asumir un bundle solo inglés. El smoke verifica estas declaraciones en la aplicación copiada del DMG.
+
 Opciones:
 
 ```sh
@@ -152,6 +154,8 @@ El flujo de GitHub ejecuta formato, pruebas, Clippy y compilación en Mac ARM64,
 El flujo no publica releases, no modifica el repositorio de versiones anterior y no actualiza automáticamente instalaciones existentes. Revisar los artefactos y los cambios funcionales antes de una publicación.
 
 Los tres workflows Full fijan el checkout a un commit concreto. En pull requests usan `github.event.pull_request.head.sha`, no el commit de merge sintético de GitHub; fuera de un PR usan `github.sha`. `source-provenance.py` comprueba HEAD y ausencia de cambios en archivos versionados antes de construir y después de las pruebas instaladas. Cada carpeta Full recibe `BUILD-SOURCE.json` con commit, tree, versión, arquitectura, edición, hash/tamaño del modelo y hash/tamaño del instalador. Antes de reunir una entrega para Windows, Mac ARM e Intel, los tres manifiestos deben indicar el mismo commit, tree y modelo. Para una compilación local también puede comparar cada archivo y enlace del workspace con `git archive` del checkout congelado, sin extraerlo ni modificar datos. Esta prueba de procedencia no sustituye las pruebas de instalación.
+
+Intel restaura la caché Cargo antes de crear el modelo o las evidencias bajo `target/`: una coincidencia parcial de `rust-cache` limpia los archivos que no reconoce como artefactos Cargo. Windows también prepara sus dependencias después de esa restauración. ARM conserva modelo y LibTorch fuera de `target/`, en `RUNNER_TEMP`, y escribe las evidencias después de restaurar Cargo.
 
 El flujo adicional `.github/workflows/windows-full.yml` se ejecuta en los pull requests y manualmente. Tiene dos comprobaciones independientes sobre un runner nativo `windows-2022`:
 

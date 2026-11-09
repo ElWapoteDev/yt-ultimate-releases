@@ -63,7 +63,7 @@ pub fn PlaylistsPage() -> Element {
                                 div {class:"playlist-hero-cover",PlaylistCover {tracks:tracks.clone(),size:"xl"}}
                                 div {class:"collection-hero__meta",span {class:"collection-hero__eyebrow","Playlist"}span {class:"collection-hero__title","{playlist.name}"}span {class:"collection-hero__sub","{track_count_label(tracks.len())}"}
                                     div {class:"collection-hero__actions",
-                                        button {class:"btn-accent",disabled:tracks.is_empty(),onclick:{let state=state.clone();let tracks=tracks.clone();move |_|state.play_all(tracks.clone(),false)},Icon{name:"play",size:13}"Reproducir"}
+                                        button {class:"btn-accent",disabled:tracks.is_empty(),onclick:{let state=state.clone();let tracks=tracks.clone();move |_|state.play_all(tracks.clone(),false)},Icon{name:"play",size:13,fill:"currentColor"}"Reproducir"}
                                         button {class:"btn-secondary",title:"Reproducir en orden aleatorio",disabled:tracks.is_empty(),onclick:{let state=state.clone();let tracks=tracks.clone();move |_|state.play_all(tracks.clone(),true)},Icon{name:"shuffle",size:13}}
                                         button {class:"btn-secondary",disabled:tracks.is_empty(),onclick:{let state=state.clone();let playlist=playlist.clone();move |_|state.export_playlist(playlist.clone())},Icon{name:"download",size:13}"Exportar"}
                                         details {class:"playlist-options",

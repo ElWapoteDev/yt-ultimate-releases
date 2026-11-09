@@ -8514,7 +8514,6 @@ name = "yt-app"
 version = "5.0.1"
 dependencies = [
  "arboard",
- "block2",
  "chrono",
  "dioxus",
  "dioxus-ssr",

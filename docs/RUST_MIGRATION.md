@@ -1,6 +1,6 @@
 # Estado de la migración a Rust
 
-El alcance es **macOS y Windows**; Android e iPhone están aplazados. La [prerelease 5.0.0](https://github.com/ElWapoteDev/yt-ultimate-releases/releases/tag/v5.0.0) ya está publicada y conserva su snapshot de fuentes e instaladores. El workspace actual es **5.0.1 en desarrollo**: las ampliaciones siguientes aún no están en los instaladores de 5.0.0. No se declara paridad total, equivalencia visual exacta ni preparación para producción.
+El alcance de **5.0.1** es macOS y Windows. Android e iPhone están aplazados. Las notas del [release 5.0.1](https://github.com/ElWapoteDev/yt-ultimate-releases/releases/tag/v5.0.1) identifican los instaladores y la validación de su commit. La [prerelease 5.0.0](https://github.com/ElWapoteDev/yt-ultimate-releases/releases/tag/v5.0.0) conserva sus fuentes e instaladores.
 
 ## Arquitectura
 
@@ -53,7 +53,7 @@ El actualizador mantiene `ElWapoteDev/yt-ultimate-releases`. Requiere digest SHA
 
 ## Verificación observada
 
-La entrega publicada 5.0.0 aprobó **85 de 85 pruebas**, formato y Clippy del workspace completo con separación habilitada. La suite integrada 5.0.1 final aprobó **219 pruebas**, con 7 explícitamente ignoradas, formato y Clippy del workspace completo con separación habilitada. Incluye las regresiones de cancelación, persistencia, arrastre y recepción de archivos durante importaciones lentas; no se suman ejecuciones parciales.
+La entrega publicada 5.0.0 aprobó **85 de 85 pruebas**, formato y Clippy del workspace completo con separación habilitada. El checkpoint integrado 5.0.1 aprobó **219 pruebas**, con 7 explícitamente ignoradas, formato y Clippy del workspace completo con separación habilitada. Incluye las regresiones de cancelación, persistencia, arrastre y recepción de archivos durante importaciones lentas; no se suman ejecuciones parciales.
 
 | Evidencia | Resultado observado |
 | --- | --- |
@@ -95,4 +95,4 @@ El release 5.0.0 permanece inmutable; el desarrollo posterior no se atribuye a s
 
 Se conservan `frontend/`, `backend/`, scripts, pruebas y paquetes anteriores; [LEGACY_ELECTRON.md](LEGACY_ELECTRON.md) contiene el README original. La conservación no convierte automáticamente extensiones Python ni acredita todos los perfiles antiguos.
 
-Historial, Matroska, upgrade instalado e Intel Full ya tienen implementación y pruebas concretas. Se corrigieron el despacho de atajos de paneles Mac, el orden de inicialización AppKit, el rechazo de autoimportación al arrastrar y la recepción continua de archivos durante importaciones largas. Sus comprobaciones de código y regresiones pasan. La herramienta de captura perdió acceso a la ventana antes de repetir la comprobación visual de esos últimos cambios. Quedan la comparación visual completa y los flujos manuales Windows no cubiertos por CI. Los tres instaladores deben aprobar los workflows Full del mismo commit; sus informes BUILD-SOURCE.json y las notas del release identifican la fuente y el resultado final. No se declara equivalencia visual exacta sin esa evidencia. Los paquetes sin certificados de distribución se identifican como tales; Android/iPhone siguen fuera del alcance.
+Historial, Matroska, upgrade instalado e Intel Full ya tienen implementación y pruebas concretas. Se corrigieron el orden de inicialización AppKit, el rechazo de autoimportación al arrastrar y la recepción continua de archivos durante importaciones largas. Sus comprobaciones de código y regresiones pasan. La prueba comparativa del selector nativo reproduce la misma limitación de Cmd+A/V en Electron y Rust mediante la herramienta de control; escribir y las acciones del menú funcionan. No se considera una regresión demostrada de Rust ni se declara una corrección del teclado físico. El monitor experimental de atajos se retiró. La comparación de Biblioteca y Stems recuperó la captura al elevar la ventana de prueba. Se ajustaron el color de fondo y los iconos de reproducción a partir de las diferencias observadas. Una regresión acciona las siete páginas y verifica el contenido y el estado activo de la navegación. Quedan la comparación visual completa y los flujos manuales Windows no cubiertos por CI. Los tres instaladores deben aprobar los workflows Full del mismo commit; sus informes BUILD-SOURCE.json y las notas del release identifican la fuente y el resultado final. No se declara equivalencia visual exacta sin esa evidencia. Los paquetes sin certificados de distribución se identifican como tales; Android/iPhone siguen fuera del alcance.

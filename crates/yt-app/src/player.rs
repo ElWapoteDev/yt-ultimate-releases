@@ -49,9 +49,9 @@ pub fn PlayerBar() -> Element {
         }
         div{class:"player-center",div{class:"player-controls",
             button{class:if *s.shuffle.read(){"player-btn player-btn-small player-btn-active"}else{"player-btn player-btn-small"},title:if *s.shuffle.read(){"Aleatorio activado"}else{"Aleatorio"},aria_pressed:s.shuffle.read().to_string(),onclick:move |_|shuffle.toggle_shuffle(),Icon{name:"shuffle",size:14}}
-            button{class:"player-btn",title:"Anterior",disabled:!has_media,onclick:move |_|previous.previous(),Icon{name:"previous",size:17}}
-            button{class:"player-btn player-btn-play",title:if is_playing{"Pausar"}else{"Reproducir"},disabled:!has_media,onclick:move |_|play.toggle_play(),Icon{name:if buffering{"loading"}else if is_playing{"pause"}else{"play"},size:16}}
-            button{class:"player-btn",title:"Siguiente",disabled:s.queue.read().is_empty(),onclick:move |_|next.next(false),Icon{name:"next",size:17}}
+            button{class:"player-btn",title:"Anterior",disabled:!has_media,onclick:move |_|previous.previous(),Icon{name:"previous",size:17,fill:"currentColor"}}
+            button{class:"player-btn player-btn-play",title:if is_playing{"Pausar"}else{"Reproducir"},disabled:!has_media,onclick:move |_|play.toggle_play(),Icon{name:if buffering{"loading"}else if is_playing{"pause"}else{"play"},size:16,fill:if buffering{"none"}else{"currentColor"},style:if !buffering && !is_playing{"margin-left:2px"}else{""}}}
+            button{class:"player-btn",title:"Siguiente",disabled:s.queue.read().is_empty(),onclick:move |_|next.next(false),Icon{name:"next",size:17,fill:"currentColor"}}
             button{class:if *s.repeat.read()>0{"player-btn player-btn-small player-btn-active"}else{"player-btn player-btn-small"},title:match *s.repeat.read(){1=>"Repetir todo",2=>"Repetir uno",_=>"Repetir"},onclick:move |_|repeat.cycle_repeat(),Icon{name:if *s.repeat.read()==2{"repeat-one"}else{"repeat"},size:14}}
         }
             div{class:"player-progress-section",span{class:"player-time",if has_media{"{time_label(shown)}"}else{"--:--"}}

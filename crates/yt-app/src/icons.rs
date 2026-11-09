@@ -8,6 +8,8 @@ pub fn Icon(
     #[props(default = 16)] size: u32,
     #[props(default="".to_owned())] class: String,
     #[props(default = 1.8)] stroke_width: f64,
+    #[props(default = "none".to_owned())] fill: String,
+    #[props(default = String::new())] style: String,
 ) -> Element {
     let geometry = match name.as_str() {
         "activity" => {
@@ -139,7 +141,7 @@ pub fn Icon(
         _ => r#"<path d="M12 3v10M12 18v1"/>"#,
     };
     rsx! {
-        svg { class: if name == "loading" { format!("spinner {class}") } else { class }, width: size, height: size, view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "{stroke_width}", stroke_linecap: "round", stroke_linejoin: "round", "aria-hidden": "true",dangerous_inner_html:geometry,
+        svg { class: if name == "loading" { format!("spinner {class}") } else { class }, width: size, height: size, view_box: "0 0 24 24", fill, style, stroke: "currentColor", stroke_width: "{stroke_width}", stroke_linecap: "round", stroke_linejoin: "round", "aria-hidden": "true",dangerous_inner_html:geometry,
 
         }
     }

@@ -34,6 +34,7 @@
     }
   ],
   "macos": {
+    "infoPlistPath": @MACOS_INFO_PLIST@,
     "minimumSystemVersion": @MINIMUM_MACOS@,
     "frameworks": @FRAMEWORKS@,
     "signingIdentity": @APPLE_IDENTITY@

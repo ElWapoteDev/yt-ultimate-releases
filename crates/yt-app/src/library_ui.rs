@@ -30,7 +30,7 @@ pub fn LibraryPage() -> Element {
             div { class: "toolbar__left", h1 { class: "page-title", "Canciones" } span { class: "page-count", "{tracks.len()}" } }
             div { class: "toolbar__right",
                 if !tracks.is_empty() {
-                    button { class: "btn-accent",title:"Reproducir en orden", onclick: move |_| play_state.play_all(play_all.clone(), false), Icon { name: "play", size: 13 } "Reproducir" }
+                    button { class: "btn-accent",title:"Reproducir en orden", onclick: move |_| play_state.play_all(play_all.clone(), false), Icon { name: "play", size: 13, fill: "currentColor" } "Reproducir" }
                     button { class: "btn-secondary", title: "Reproducir en orden aleatorio", onclick: move |_| shuffle_state.play_all(shuffled.clone(), true), Icon { name: "shuffle", size: 13 } }
                 }
                 button { class: "btn-secondary", title:"Importar archivos o carpetas",disabled: *s.busy.read(), onclick: move |_| import_state.import_files(false),FilePlusIcon {size:13}"Importar" }
@@ -64,7 +64,7 @@ pub fn LibraryPage() -> Element {
 
 #[component]
 fn FilePlusIcon(size: u32) -> Element {
-    rsx! {svg{width:size,height:size,view_box:"0 0 24 24",fill:"none",stroke:"currentColor",stroke_width:"1.8",stroke_linecap:"round",stroke_linejoin:"round","aria-hidden":"true",path{d:"M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4M14 2v6h6M3 15h6M6 12v6"}}}
+    rsx! {svg{width:size,height:size,view_box:"0 0 24 24",fill:"none",stroke:"currentColor",stroke_width:"1.8",stroke_linecap:"round",stroke_linejoin:"round","aria-hidden":"true",path{d:"M11.35 22H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v5.35"}path{d:"M14 2v5a1 1 0 0 0 1 1h5"}path{d:"M14 19h6"}path{d:"M17 16v6"}}}
 }
 
 #[component]

@@ -252,6 +252,10 @@ fn run() -> Result {
         .replace("@RESOURCES@", &resources)
         .replace("@FRAMEWORKS@", &frameworks)
         .replace(
+            "@MACOS_INFO_PLIST@",
+            &json(&root.join("packaging/macos/Info.plist").to_string_lossy()),
+        )
+        .replace(
             "@MINIMUM_MACOS@",
             &json(if native_stems { "14.0" } else { "12.0" }),
         )

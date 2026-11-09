@@ -173,6 +173,10 @@ def main():
                 info = plistlib.load(source)
             evidence['bundle_version'] = info.get('CFBundleShortVersionString')
             evidence['bundle_build_version'] = info.get('CFBundleVersion')
+            evidence['development_region'] = info.get('CFBundleDevelopmentRegion')
+            evidence['localizations'] = info.get('CFBundleLocalizations')
+            if info.get('CFBundleDevelopmentRegion') != 'es' or info.get('CFBundleLocalizations') != ['es', 'en']:
+                raise RuntimeError('The installed application is missing its Spanish/English localization declarations')
             if info.get('CFBundleShortVersionString') != version:
                 raise RuntimeError(f"DMG application version {info.get('CFBundleShortVersionString')!r} differs from Cargo {version}")
             declared = info.get('LSMinimumSystemVersion')

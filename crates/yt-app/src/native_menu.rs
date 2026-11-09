@@ -486,8 +486,6 @@ fn rebuild(state: &AppState) -> Result<(), dioxus::desktop::muda::Error> {
 
 pub(super) fn use_application_menu(state: AppState) {
     let window = use_window();
-    #[cfg(target_os = "macos")]
-    let _panel_edit_monitor = use_hook(|| std::rc::Rc::new(panel_edit_keys::Monitor::install()));
     #[cfg(target_os = "windows")]
     use_hook({
         let window = window.clone();
@@ -532,95 +530,6 @@ pub(super) fn use_application_menu(state: AppState) {
             state.notify(format!("No se pudo actualizar el menú: {error}"));
         }
     });
-}
-
-#[cfg(target_os = "macos")]
-mod panel_edit_keys {
-    use block2::RcBlock;
-    use objc2::{rc::Retained, runtime::AnyObject, ClassType, MainThreadMarker};
-    use objc2_app_kit::{
-        NSApplication, NSEvent, NSEventMask, NSEventModifierFlags, NSMenu, NSPanel, NSText,
-    };
-    use objc2_foundation::NSObjectProtocol;
-    use std::ptr::NonNull;
-
-    pub(super) struct Monitor(Option<Retained<AnyObject>>);
-
-    impl Monitor {
-        pub(super) fn install() -> Self {
-            let callback = RcBlock::new(|event: NonNull<NSEvent>| {
-                // SAFETY: AppKit invokes a local monitor on the main thread and
-                // keeps this event alive until the callback returns.
-                let incoming = unsafe { event.as_ref() };
-                if handle(incoming) {
-                    std::ptr::null_mut()
-                } else {
-                    event.as_ptr()
-                }
-            });
-            // SAFETY: the block has no borrowed captures. AppKit copies it and
-            // the owner removes the monitor when the native UI is unmounted.
-            Self(unsafe {
-                NSEvent::addLocalMonitorForEventsMatchingMask_handler(
-                    NSEventMask::KeyDown,
-                    &callback,
-                )
-            })
-        }
-    }
-
-    impl Drop for Monitor {
-        fn drop(&mut self) {
-            if let Some(monitor) = self.0.take() {
-                // SAFETY: this is exactly the token returned by AppKit above,
-                // and Dioxus owns this hook on its native UI thread.
-                unsafe { NSEvent::removeMonitor(&monitor) };
-            }
-        }
-    }
-
-    fn edit_menu(app: &NSApplication) -> Option<Retained<NSMenu>> {
-        let menu = app.mainMenu()?;
-        menu.itemArray().iter().find_map(|item| {
-            let submenu = item.submenu()?;
-            (submenu.title().to_string() == "Edición").then_some(submenu)
-        })
-    }
-
-    fn handle(event: &NSEvent) -> bool {
-        if !event
-            .modifierFlags()
-            .contains(NSEventModifierFlags::Command)
-        {
-            return false;
-        }
-        let Some(main_thread) = MainThreadMarker::new() else {
-            return false;
-        };
-        let app = NSApplication::sharedApplication(main_thread);
-        let Some(key) = app.keyWindow() else {
-            return false;
-        };
-        let is_panel = key.isKindOfClass(NSPanel::class());
-        let is_sheet_child = app
-            .mainWindow()
-            .is_some_and(|main| main != key && main.attachedSheet().is_some());
-        if !is_panel && !is_sheet_child {
-            return false;
-        }
-        let Some(responder) = key.firstResponder() else {
-            return false;
-        };
-        if !responder.isKindOfClass(NSText::class()) {
-            return false;
-        }
-        // Native open/save panels and their Go To editor must use the same
-        // nil-target AppKit actions as clicking Edición. Resolve that menu
-        // explicitly while a native panel owns the text editor. AppKit retains
-        // keyboard-layout and user shortcut handling;
-        // unmatched keys and all WebView input follow their original path.
-        edit_menu(&app).is_some_and(|menu| menu.performKeyEquivalent(event))
-    }
 }
 
 pub(super) fn handle_event(state: &AppState, id: &str) -> bool {
