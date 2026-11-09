@@ -54,8 +54,9 @@ for name in smoke.LIBRARIES:
     output = subprocess.check_output(['otool', '-l', str(Path(sys.argv[1]) / 'lib' / name)], text=True)
     (Path(sys.argv[2]) / (name + '.load-commands.txt')).write_text(output)
     records[name] = smoke.mach_o_minimums(output)
-    smoke.check_minimums(records[name], '14.0')
 (Path(sys.argv[2]) / 'deployment-minimums.json').write_text(json.dumps(records, indent=2) + '\n')
+for library_records in records.values():
+    smoke.check_minimums(library_records, '14.0')
 PYVERIFY
 (cd "$prefix" && shasum -a 256 lib/{libtorch,libtorch_cpu,libc10,libomp}.dylib) > "$logs/dylibs.sha256"
 cp "$logs/dylibs.sha256" "$prefix/"

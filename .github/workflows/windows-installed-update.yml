@@ -1,0 +1,55 @@
+name: Windows installed updater validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      installer_run:
+        description: Successful Windows Full run containing the installer to exercise
+        required: true
+        default: '42535613878'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  installed-update:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse both smoke scripts before touching the disposable installation
+        shell: pwsh
+        run: |
+          foreach ($file in @('packaging/ci/windows-installed-smoke.ps1', 'packaging/ci/windows-updater-smoke.ps1')) {
+            $tokens = $null
+            $parseErrors = $null
+            [void][Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$tokens, [ref]$parseErrors)
+            if ($parseErrors.Count -gt 0) { throw ($parseErrors | Out-String) }
+          }
+      - name: Download the existing CI installer without rebuilding or publishing
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.installer_run }}
+          pattern: YT-Ultimate-Windows-Full-*
+          path: target/installer-validation-source
+          merge-multiple: true
+      - name: Verify checksum and exercise the installed update helper
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath target/installer-validation-source -Recurse -Filter '*_full-setup.exe')
+          if ($installers.Count -ne 1) { throw 'Expected one Full installer from the selected run' }
+          $installer = $installers[0]
+          $manifest = Join-Path $installer.DirectoryName 'SHA256SUMS'
+          $expected = "$((Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($installer.Name)"
+          if (-not (@(Get-Content -LiteralPath $manifest) -ccontains $expected)) { throw 'Installer does not match its checksum manifest' }
+          ./packaging/ci/windows-installed-smoke.ps1 -Installer $installer.FullName -InstalledExecutableName 'YT Ultimate.exe' -ExerciseUpdater -ResultsDirectory target/ci-results/installed-update
+      - name: Save evidence without publishing a release
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-installed-updater-${{ github.run_id }}
+          path: target/ci-results/installed-update/
+          if-no-files-found: warn
+          retention-days: 14

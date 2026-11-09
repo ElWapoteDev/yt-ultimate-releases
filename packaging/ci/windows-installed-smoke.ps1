@@ -3,6 +3,7 @@ param(
     [string]$LegacyInstaller,
     [string]$StemsProbe,
     [string]$QualityProbe,
+    [switch]$ExerciseUpdater,
     [ValidateSet('yt-ultimate.exe', 'YT Ultimate.exe')][string]$InstalledExecutableName = 'yt-ultimate.exe',
     [string]$ResultsDirectory = 'target/ci-results/windows-installed'
 )
@@ -52,6 +53,7 @@ $result = [ordered]@{
     cpu_stems_passed = $false
     cpu_quality_passed = $false
     graceful_exit = $false
+    updater_handoff_passed = $null
     uninstall_completed = $false
 }
 $appProcess = $null
@@ -172,7 +174,7 @@ try {
     if ($appProcess.HasExited) { throw 'Application exited during the startup observation period' }
     # The immutable preview predates single-instance support. Require it for
     # newly built source packages and the Electron upgrade path only.
-    if ($StemsProbe -or $LegacyInstaller) {
+    if ($StemsProbe -or $LegacyInstaller -or $ExerciseUpdater) {
         $secondaryPath = if ($InstalledExecutableName -eq 'YT Ultimate.exe') { $compatibilityExecutable } else { $executable }
         $secondary = New-IsolatedProcess $secondaryPath
         $secondaryStdout = $secondary.StandardOutput.ReadToEndAsync()
@@ -189,6 +191,13 @@ try {
             $secondaryStderr.Result | Out-File -LiteralPath (Join-Path $ResultsDirectory 'secondary.stderr.log') -Encoding utf8
             $secondary.Dispose()
         }
+    }
+    if ($ExerciseUpdater) {
+        . (Join-Path $PSScriptRoot 'windows-updater-smoke.ps1')
+        $previousProcess = $appProcess
+        $appProcess = Invoke-InstalledUpdateHandoff -Application $previousProcess -Executable $executable -Installer $Installer -Profile $profilePath -EvidenceDirectory $ResultsDirectory
+        $previousProcess.Dispose()
+        $result.updater_handoff_passed = $true
     }
     if (-not $appProcess.CloseMainWindow()) { throw 'Could not request a normal window close' }
     if (-not $appProcess.WaitForExit(30000)) { throw 'Application did not exit after closing its main window' }
