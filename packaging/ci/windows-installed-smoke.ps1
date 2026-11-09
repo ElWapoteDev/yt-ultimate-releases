@@ -199,8 +199,17 @@ try {
         $previousProcess.Dispose()
         $result.updater_handoff_passed = $true
     }
+    $appProcess.Refresh()
+    $result.final_window_handle = $appProcess.MainWindowHandle.ToInt64()
+    $result.final_window_title = $appProcess.MainWindowTitle
     if (-not $appProcess.CloseMainWindow()) { throw 'Could not request a normal window close' }
-    if (-not $appProcess.WaitForExit(30000)) { throw 'Application did not exit after closing its main window' }
+    if (-not $appProcess.WaitForExit(30000)) {
+        $appProcess.Refresh()
+        $result.window_handle_after_close = $appProcess.MainWindowHandle.ToInt64()
+        $result.window_title_after_close = $appProcess.MainWindowTitle
+        $result.responding_after_close = $appProcess.Responding
+        throw 'Application did not exit after closing its main window'
+    }
     if ($appProcess.ExitCode -ne 0) { throw "Application closed with exit code $($appProcess.ExitCode)" }
     $result.graceful_exit = $true
     if ($LegacyInstaller) {

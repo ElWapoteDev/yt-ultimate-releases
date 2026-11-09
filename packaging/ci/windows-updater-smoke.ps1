@@ -72,7 +72,7 @@ public static class YtuSmokeNativePaths {
     $helper = $null
     $restarted = $null
     $completed = $false
-    $evidence = [ordered]@{ acknowledged = $false; remained_waiting_with_parent_lock = $false; waited_for_parent_after_unlock = $false; installer_handoff = $false; restarted_window = $false; profile_reused = $false }
+    $evidence = [ordered]@{ acknowledged = $false; remained_waiting_with_parent_lock = $false; waited_for_parent_after_unlock = $false; installer_handoff = $false; restarted_window = $false; restarted_webview2_child = $false; profile_reused = $false }
     try {
         $helper = New-IsolatedProcess $Executable @('--yt-apply-update', $manifestPath)
         $stdout = $helper.StandardOutput.ReadToEndAsync()
@@ -116,13 +116,23 @@ public static class YtuSmokeNativePaths {
         do {
             if ($restarted.HasExited) { throw 'Updated application exited during observation' }
             $logPath = Join-Path $Profile 'Logs/application.log'
+            $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($restarted.Id)")
+            $evidence.restarted_webview2_child = @($children | Where-Object Name -eq 'msedgewebview2.exe').Count -gt 0
             if (Test-Path -LiteralPath $logPath) {
                 $log = Get-Content -LiteralPath $logPath -Raw
-                $profileReady = @([regex]::Matches($log, 'Started YT Ultimate')).Count -ge 2 -and (Test-Path -LiteralPath (Join-Path $Profile 'yt-ultimate.sqlite3'))
+                $profileReady = $evidence.restarted_webview2_child -and @([regex]::Matches($log, 'Started YT Ultimate')).Count -ge 2 -and (Test-Path -LiteralPath (Join-Path $Profile 'yt-ultimate.sqlite3'))
             }
             if (-not $profileReady) { Start-Sleep -Milliseconds 500 }
         } until ($profileReady -or [DateTime]::UtcNow -ge $deadline)
         if (-not $profileReady) { throw 'Restart did not reuse the isolated application profile and database' }
+        # Match the initial GUI smoke: a newly created HWND and early startup
+        # log do not mean that the WebView and its native hooks have mounted.
+        Start-Sleep -Seconds 5
+        $restarted.Refresh()
+        if ($restarted.HasExited -or $restarted.MainWindowHandle -eq [IntPtr]::Zero) { throw 'Restarted application did not remain visible during observation' }
+        $evidence.restarted_pid = $restarted.Id
+        $evidence.restarted_window_handle = $restarted.MainWindowHandle.ToInt64()
+        $evidence.restarted_window_title = $restarted.MainWindowTitle
         $evidence.profile_reused = $true
         $completed = $true
         return $restarted
