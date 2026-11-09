@@ -1,6 +1,11 @@
 name: Windows installed updater validation
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-installed-update.yml'
+      - 'packaging/ci/windows-updater-smoke.ps1'
+      - 'packaging/ci/windows-installed-smoke.ps1'
   workflow_dispatch:
     inputs:
       installer_run:
@@ -31,7 +36,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
-          run-id: ${{ inputs.installer_run }}
+          run-id: ${{ inputs.installer_run || '42535613878' }}
           pattern: YT-Ultimate-Windows-Full-*
           path: target/installer-validation-source
           merge-multiple: true
