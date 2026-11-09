@@ -40,6 +40,16 @@ pub fn launch() {
         }
     };
     native::initialize();
+    let config = Config::new();
+    #[cfg(target_os = "macos")]
+    let config = {
+        // Tao must create its NSApplication subclass before menu construction
+        // calls sharedApplication (Services and recent documents do so).
+        // Otherwise AppKit retains a plain NSApplication for the whole process.
+        config.with_event_loop(
+            dioxus::desktop::tao::event_loop::EventLoopBuilder::with_user_event().build(),
+        )
+    };
     let window = WindowBuilder::new()
         .with_title("YT Ultimate")
         .with_inner_size(dioxus::desktop::LogicalSize::new(1440.0, 900.0))
@@ -61,7 +71,7 @@ pub fn launch() {
     };
     dioxus::LaunchBuilder::desktop()
         .with_cfg(native::configure(
-            Config::new()
+            config
                 .with_disable_context_menu(false)
                 .with_menu(native::menu())
                 .with_custom_event_handler(|event, _| native::capture_open_events(event))

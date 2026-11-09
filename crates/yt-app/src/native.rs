@@ -10,7 +10,12 @@ use dioxus::{
     },
     prelude::*,
 };
-use std::{path::PathBuf, process::Command, sync::Mutex, time::Duration};
+use std::{
+    path::PathBuf,
+    process::Command,
+    sync::{Arc, LazyLock, Mutex},
+    time::Duration,
+};
 
 #[path = "native_menu.rs"]
 mod application;
@@ -123,6 +128,88 @@ pub(crate) fn record_recent(path: &std::path::Path) {
     }
 }
 
+#[derive(Default)]
+struct OutgoingMediaDrags {
+    generations: Mutex<(u64, Option<u64>)>,
+}
+
+impl OutgoingMediaDrags {
+    fn begin(self: &Arc<Self>) -> OutgoingMediaDrag {
+        let mut generations = self
+            .generations
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        generations.0 = generations.0.wrapping_add(1);
+        let generation = generations.0;
+        generations.1 = Some(generation);
+        OutgoingMediaDrag {
+            owner: self.clone(),
+            generation,
+        }
+    }
+
+    fn active(&self) -> bool {
+        self.generations
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .1
+            .is_some()
+    }
+}
+
+#[derive(Clone)]
+struct OutgoingMediaDrag {
+    owner: Arc<OutgoingMediaDrags>,
+    generation: u64,
+}
+
+impl OutgoingMediaDrag {
+    fn finish(&self) {
+        let mut generations = self
+            .owner
+            .generations
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if generations.1 == Some(self.generation) {
+            generations.1 = None;
+        }
+    }
+
+    fn browser_script(&self, active: bool) -> String {
+        if active {
+            format!(
+                "document.documentElement.dataset.ytuOutgoingDrag='{}';window.dispatchEvent(new Event('ytu-outgoing-drag'));",
+                self.generation
+            )
+        } else {
+            format!(
+                "if(document.documentElement.dataset.ytuOutgoingDrag==='{}'){{delete document.documentElement.dataset.ytuOutgoingDrag;window.dispatchEvent(new Event('ytu-outgoing-drag'));}}",
+                self.generation
+            )
+        }
+    }
+}
+
+static OUTGOING_MEDIA_DRAGS: LazyLock<Arc<OutgoingMediaDrags>> =
+    LazyLock::new(|| Arc::new(OutgoingMediaDrags::default()));
+
+pub(crate) fn outgoing_media_drag_active() -> bool {
+    OUTGOING_MEDIA_DRAGS.active()
+}
+
+/// Windows delivers queued WebView events after DoDragDrop returns. Keep the
+/// Rust guard until the browser has acknowledged the end-of-drag script, so a
+/// delayed self-drop cannot become a fresh external import.
+async fn finish_outgoing_drag(
+    session: OutgoingMediaDrag,
+    ended: tokio::sync::oneshot::Receiver<()>,
+    browser_delivered: impl std::future::Future<Output = ()>,
+) {
+    let _ = ended.await;
+    browser_delivered.await;
+    session.finish();
+}
+
 /// Begin a native copy drag from an explicit file handle, not an HTML drag.
 /// Call synchronously from the primary mouse-down handler after preventing
 /// the browser default and stopping propagation (playlist reordering is separate).
@@ -136,18 +223,37 @@ pub(crate) fn begin_media_drag(state: &AppState, track: &yt_core::Track) {
     };
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
+        let session = OUTGOING_MEDIA_DRAGS.begin();
+        document::eval(&session.browser_script(true));
+        let (ended, receiver) = tokio::sync::oneshot::channel();
+        let ended = Mutex::new(Some(ended));
+        let completion = session.clone();
+        let browser_session = session.clone();
+        dioxus::core::spawn_forever(finish_outgoing_drag(completion, receiver, async move {
+            let _ = document::eval(&browser_session.browser_script(false)).await;
+        }));
         let window = dioxus::desktop::window();
         let result = drag::start_drag(
             window.window.as_ref(),
             drag::DragItem::Files(vec![path]),
             drag::Image::Raw(include_bytes!("../../../packaging/icons/drag-icon.png").to_vec()),
-            |_, _| {},
+            move |_, _| {
+                if let Some(ended) = ended
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .take()
+                {
+                    let _ = ended.send(());
+                }
+            },
             drag::Options {
                 mode: drag::DragMode::Copy,
                 ..Default::default()
             },
         );
         if let Err(error) = result {
+            session.finish();
+            document::eval(&session.browser_script(false));
             state.notify(format!("No se pudo iniciar el arrastre: {error}"));
         }
     }
@@ -353,6 +459,18 @@ fn item(id: &str, label: &str, code: Code, shift: bool) -> MenuItem {
     )
 }
 
+async fn import_open_requests<F, I>(
+    mut requests: tokio::sync::mpsc::UnboundedReceiver<Vec<PathBuf>>,
+    mut import: F,
+) where
+    F: FnMut(Vec<PathBuf>) -> I,
+    I: std::future::Future<Output = ()>,
+{
+    while let Some(paths) = requests.recv().await {
+        import(paths).await;
+    }
+}
+
 pub fn use_native(mut state: AppState) {
     application::use_application_menu(state.clone());
     window_controls::use_window_frame(&state);
@@ -454,33 +572,45 @@ pub fn use_native(mut state: AppState) {
     let import_window = window.clone();
     use_hook(move || {
         spawn(async move {
-            loop {
-                let profile = import_state.services.profile.clone();
-                let requests = tokio::task::spawn_blocking(move || {
-                    crate::native_instance::take_requests(&profile)
-                })
-                .await
-                .ok()
-                .and_then(Result::ok)
-                .unwrap_or_default();
-                if !requests.is_empty() {
-                    import_window.window.set_minimized(false);
-                    import_window.window.set_visible(true);
-                    import_window.window.set_focus();
-                    let paths = requests.into_iter().flatten().collect::<Vec<_>>();
-                    if !paths.is_empty() {
-                        import_state.import_paths(paths).await;
-                    }
-                }
-                let paths = OPEN_FILES
-                    .lock()
-                    .map(|mut pending| std::mem::take(&mut *pending))
+            // Drain fresh launch requests even while importing a large folder.
+            // Only the on-disk mailbox expires messages; accepted requests stay
+            // queued here and one importer processes them in arrival order.
+            let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+            let profile = import_state.services.profile.clone();
+            let importer = import_open_requests(receiver, move |paths| {
+                let state = import_state.clone();
+                async move { state.import_paths(paths).await }
+            });
+            let collector = async move {
+                loop {
+                    let profile = profile.clone();
+                    let requests = tokio::task::spawn_blocking(move || {
+                        crate::native_instance::take_requests(&profile)
+                    })
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
                     .unwrap_or_default();
-                if !paths.is_empty() {
-                    import_state.import_paths(paths).await;
+                    if !requests.is_empty() {
+                        import_window.window.set_minimized(false);
+                        import_window.window.set_visible(true);
+                        import_window.window.set_focus();
+                        let paths = requests.into_iter().flatten().collect::<Vec<_>>();
+                        if !paths.is_empty() && sender.send(paths).is_err() {
+                            return;
+                        }
+                    }
+                    let paths = OPEN_FILES
+                        .lock()
+                        .map(|mut pending| std::mem::take(&mut *pending))
+                        .unwrap_or_default();
+                    if !paths.is_empty() && sender.send(paths).is_err() {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(200)).await;
                 }
-                tokio::time::sleep(Duration::from_millis(200)).await;
-            }
+            };
+            tokio::join!(collector, importer);
         })
     });
     use_wry_event_handler(move |event, _| match event {
@@ -825,6 +955,141 @@ pub(crate) fn restore_after_update(_state: &AppState) {
 #[cfg(test)]
 mod native_tests {
     use super::*;
+    use std::{future::Future, task::Context};
+
+    #[tokio::test]
+    async fn slow_import_keeps_later_launch_requests_after_mailbox_expiry() {
+        use std::{cell::RefCell, rc::Rc, time::SystemTime};
+
+        let temporary = tempfile::tempdir().unwrap();
+        let profile = temporary.path().join("profile");
+        let _primary = crate::native_instance::acquire(&profile).unwrap().unwrap();
+        let first = temporary.path().join("large folder");
+        std::fs::create_dir(&first).unwrap();
+        let second = temporary.path().join("second song.wav");
+        std::fs::write(&second, b"fixture").unwrap();
+        let first = first.canonicalize().unwrap();
+        let second = second.canonicalize().unwrap();
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let write_request = |name: &str, created, path: &PathBuf| {
+            std::fs::write(
+                profile.join(".instance").join(name),
+                serde_json::to_vec(&serde_json::json!({"created":created,"paths":[path]})).unwrap(),
+            )
+            .unwrap();
+        };
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (started, first_started) = tokio::sync::oneshot::channel();
+        let (release, first_waiting) = tokio::sync::oneshot::channel();
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let observed = calls.clone();
+        let mut started = Some(started);
+        let mut first_waiting = Some(first_waiting);
+        let importer = import_open_requests(receiver, move |paths| {
+            let calls = calls.clone();
+            let started = started.take();
+            let waiting = first_waiting.take();
+            async move {
+                calls.borrow_mut().push(paths);
+                if let Some(started) = started {
+                    started.send(()).unwrap();
+                }
+                if let Some(waiting) = waiting {
+                    waiting.await.unwrap();
+                }
+            }
+        });
+        let collector = async {
+            write_request("request-first.json", now, &first);
+            for paths in crate::native_instance::take_requests(&profile).unwrap() {
+                sender.send(paths).unwrap();
+            }
+            first_started.await.unwrap();
+            write_request("request-second.json", now, &second);
+            for paths in crate::native_instance::take_requests(&profile).unwrap() {
+                sender.send(paths).unwrap();
+            }
+
+            // Model an import taking over 60 seconds without a real clock wait.
+            // The same request would now expire if left on disk by the old
+            // synchronous poller; the accepted copy must remain in the queue.
+            write_request("request-expired-copy.json", now - 61, &second);
+            assert!(crate::native_instance::take_requests(&profile)
+                .unwrap()
+                .is_empty());
+            assert_eq!(*observed.borrow(), vec![vec![first.clone()]]);
+            release.send(()).unwrap();
+            drop(sender);
+        };
+        tokio::join!(collector, importer);
+        assert_eq!(*observed.borrow(), vec![vec![first], vec![second]]);
+    }
+
+    #[test]
+    fn native_drag_end_keeps_self_drop_blocked_until_browser_acknowledges() {
+        let drags = Arc::new(OutgoingMediaDrags::default());
+        assert!(!drags.active());
+        let session = drags.begin();
+        let (native_end, ended) = tokio::sync::oneshot::channel();
+        let (browser_ack, delivered) = tokio::sync::oneshot::channel();
+        let mut completion = Box::pin(finish_outgoing_drag(session, ended, async move {
+            delivered.await.unwrap();
+        }));
+        let mut context = Context::from_waker(std::task::Waker::noop());
+
+        assert!(completion.as_mut().poll(&mut context).is_pending());
+        assert!(drags.active());
+        native_end.send(()).unwrap();
+        assert!(completion.as_mut().poll(&mut context).is_pending());
+        // DoDragDrop has returned, but its queued self-drop is still rejected.
+        assert!(drags.active());
+        browser_ack.send(()).unwrap();
+        assert!(completion.as_mut().poll(&mut context).is_ready());
+        assert!(!drags.active());
+    }
+
+    #[test]
+    fn failed_native_drag_start_unblocks_imports_without_a_callback() {
+        let drags = Arc::new(OutgoingMediaDrags::default());
+        let session = drags.begin();
+        let (native_end, ended) = tokio::sync::oneshot::channel::<()>();
+        let (browser_ack, delivered) = tokio::sync::oneshot::channel();
+        let mut completion = Box::pin(finish_outgoing_drag(session.clone(), ended, async move {
+            delivered.await.unwrap();
+        }));
+        let mut context = Context::from_waker(std::task::Waker::noop());
+
+        // A start_drag error has no active OS session and may never call back.
+        session.finish();
+        assert!(!drags.active());
+        drop(native_end);
+        assert!(completion.as_mut().poll(&mut context).is_pending());
+        assert!(!drags.active());
+        browser_ack.send(()).unwrap();
+        assert!(completion.as_mut().poll(&mut context).is_ready());
+        assert!(!drags.active());
+    }
+
+    #[test]
+    fn late_native_completion_cannot_release_a_new_drag() {
+        let drags = Arc::new(OutgoingMediaDrags::default());
+        let previous = drags.begin();
+        let (native_end, ended) = tokio::sync::oneshot::channel();
+        let mut completion = Box::pin(finish_outgoing_drag(previous.clone(), ended, async {}));
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        let current = drags.begin();
+        assert_ne!(previous.generation, current.generation);
+        native_end.send(()).unwrap();
+        assert!(completion.as_mut().poll(&mut context).is_ready());
+        assert!(drags.active());
+        previous.finish();
+        assert!(drags.active());
+        current.finish();
+        assert!(!drags.active());
+    }
 
     #[test]
     fn browser_actions_reject_credentials_and_non_web_protocols() {

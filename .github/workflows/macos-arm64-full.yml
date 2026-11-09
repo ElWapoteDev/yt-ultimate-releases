@@ -1,0 +1,96 @@
+name: Mac Apple Silicon Full validation
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-arm64-full-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  arm64-full:
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+      CXXFLAGS: '-std=c++20'
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify the exact release source before compiling
+        run: python3 packaging/ci/source-provenance.py --expected-commit "$SOURCE_COMMIT"
+      - name: Restore pinned native dependencies
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/ytu-macos-arm64-native
+          key: macos-arm64-libtorch-2.12.0-177bf6c4-model-31d794ab
+      - name: Prepare and verify the official ARM runtime and model
+        run: bash packaging/ci/prepare-macos-arm64.sh
+      - name: Save reusable dependencies before testing the application
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/ytu-macos-arm64-native
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-arm64-full
+          cache-on-failure: true
+      - name: Test, format and lint the complete native feature set
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked --workspace --features native-stems
+          cargo clippy --locked --workspace --all-targets --features native-stems -- -D warnings
+      - name: Restore the pinned packager
+        id: packager-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: target/packager-tools
+          key: cargo-packager-0.11.8-${{ runner.os }}-${{ runner.arch }}
+      - name: Install the pinned packager
+        if: steps.packager-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-packager --version 0.11.8 --locked --root target/packager-tools
+      - name: Save the packager before application validation
+        if: steps.packager-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: target/packager-tools
+          key: ${{ steps.packager-cache.outputs.cache-primary-key }}
+      - name: Build Full ARM application and native CPU probes
+        run: |
+          cargo run --locked -p xtask -- package --native-stems --formats app,dmg
+          cargo build --locked --release -p yt-media --features native-stems --example stems_probe
+          cargo build --locked --release -p yt-quality --features native-stems --example quality_probe
+      - name: Verify the installed DMG, native window and bundled inference
+        run: python3 packaging/ci/macos-installed-smoke.py --package-root target/packages/aarch64-apple-darwin --results target/ci-results/arm64-installed
+      - name: Bind the installer checksum to the exact source commit
+        run: python3 packaging/ci/source-provenance.py --expected-commit "$SOURCE_COMMIT" --package-root target/packages/aarch64-apple-darwin
+      - name: Save installers and evidence without publishing a release
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: YT-Ultimate-Mac-ARM64-Full-${{ env.SOURCE_COMMIT }}
+          path: |
+            target/packages/aarch64-apple-darwin/*/full/*.dmg
+            target/packages/aarch64-apple-darwin/*/full/SHA256SUMS
+            target/packages/aarch64-apple-darwin/*/full/BUILD-SOURCE.json
+            target/ci-results/
+          if-no-files-found: warn
+          retention-days: 14

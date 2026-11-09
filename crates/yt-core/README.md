@@ -14,6 +14,10 @@ profile once per application process.
 - Library listing and Unicode case-insensitive search; copy/reference imports;
   bounded recursive folder import; M3U/M3U8 local entry import; supported format
   recognition; metadata and duration extraction through Lofty where supported.
+- MKV/WebM duration, title, artist, album and audio frequency from bounded
+  Matroska metadata; MP4 movie duration from `mvhd`, including video-only files.
+  Existing zero-duration video entries are repaired during import/rescan while
+  preserving IDs, memberships, paths, nonempty user metadata and original bytes.
 - Copied files use collision-resistant names and never overwrite an existing
   file. Repeat imports of an unchanged source return its existing track.
 - Favorite flags, metadata updates, record removal, ordered playlist CRUD and
@@ -50,7 +54,10 @@ profile once per application process.
   Artwork/Updates files older than 24 hours. It refuses active jobs and preserves
   source media, final covers, installers, symlinks and unknown files.
 - Playback state includes optional remote queue records without adding them to
-  library tables. Legacy playback JSON without `remote_tracks` remains readable.
+  library tables, plus an independent ordered session-history stack used by
+  Previous and Repeat All. Legacy playback JSON without `remote_tracks` or
+  `session_history` remains readable. The application validates remote identities
+  before restoring them; signed transport URLs never belong in these records.
 
 ## Scope boundaries
 
@@ -60,8 +67,11 @@ separate Rust integrations. It preserves existing Python plugin configuration
 without executing those plugins. It does not convert a Python plugin into a
 Rust plugin.
 
-Lofty provides tags/properties for supported audio containers; unsupported video
-metadata falls back to the filename and an unknown duration. Remote URLs inside
+Lofty provides tags/properties for supported audio containers. Matroska parsing
+uses a metadata-only view capped at 16 MiB, excluding media blocks, attachments,
+Cues and arbitrary SeekHead offsets. A malformed/oversized container can still
+be imported with its filename and unknown duration; probing never changes it.
+Remote URLs inside
 M3U files are reported explicitly and are not downloaded as an import side
 effect. M3U imports create a playlist named after the file, preserving entry order
 and merging repeated imports without duplicate tracks. Existing playlist names
@@ -73,4 +83,6 @@ require explicit reimport; original files are never relocated by a scan.
 `cargo test -p yt-core` checks temporary real SQLite profiles, a generated PCM
 WAV, migration and backup, legacy playlist triggers, path confinement, import
 deduplication and partial errors, playlist transaction rollback, settings,
-restart recovery and playback history. It never opens the user's real profile.
+restart recovery and playback history, MKV/WebM metadata, video-only MP4 movie
+timing, malformed/oversized metadata and non-destructive repair. It never opens
+the user's real profile.

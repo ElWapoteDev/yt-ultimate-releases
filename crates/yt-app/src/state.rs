@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::HashMap,
     path::{Path, PathBuf},
     rc::Rc,
@@ -323,6 +323,8 @@ pub struct AppState {
     pub pending_seek: Signal<Option<f64>>,
     pub seek_busy: Signal<bool>,
     pub history: Signal<Vec<Track>>,
+    pub session_history: Signal<Vec<Track>>,
+    suppress_session_history: Rc<Cell<bool>>,
     pub queue: Signal<Vec<Track>>,
     pub playing: Signal<bool>,
     pub position: Signal<f64>,
@@ -350,7 +352,28 @@ pub struct AppState {
     last_saved_playback: Rc<RefCell<Option<PlaybackState>>>,
 }
 
-fn restore_playback(core: &AppCore, state: &PlaybackState) -> (Option<Track>, Vec<Track>) {
+// Remote audio/video share their service identity, but their persisted queue
+// references must retain the chosen mode. Older bare identities remain readable.
+fn playback_key(track: &Track) -> String {
+    if crate::remote::is_remote(track) {
+        format!(
+            "{}:{}",
+            track.id,
+            if track.media_type == "video" {
+                "video"
+            } else {
+                "audio"
+            }
+        )
+    } else {
+        track.id.clone()
+    }
+}
+
+fn restore_playback(
+    core: &AppCore,
+    state: &PlaybackState,
+) -> (Option<Track>, Vec<Track>, Vec<Track>) {
     let find_track = |id: &String| {
         core.track(id)
             .ok()
@@ -359,7 +382,10 @@ fn restore_playback(core: &AppCore, state: &PlaybackState) -> (Option<Track>, Ve
                 state
                     .remote_tracks
                     .iter()
-                    .find(|track| &track.id == id && crate::remote::is_remote(track))
+                    .find(|track| {
+                        crate::remote::is_remote(track)
+                            && (&track.id == id || playback_key(track) == *id)
+                    })
                     .cloned()
             })
     };
@@ -375,7 +401,17 @@ fn restore_playback(core: &AppCore, state: &PlaybackState) -> (Option<Track>, Ve
         .filter_map(|(_, id)| find_track(id))
         .filter(|track| !track.missing)
         .collect();
-    (current, queue)
+    let history = state
+        .session_history
+        .iter()
+        .rev()
+        .take(100)
+        .filter_map(find_track)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    (current, queue, history)
 }
 
 pub(crate) fn download_view(job: &Job) -> DownloadView {
@@ -466,6 +502,8 @@ pub fn use_app_state(services: Rc<Services>) -> AppState {
         pending_seek: use_app_signal(|| None),
         seek_busy: use_app_signal(|| false),
         history,
+        session_history: use_app_signal(|| restored.2.clone()),
+        suppress_session_history: use_hook(|| Rc::new(Cell::new(false))),
         queue,
         playing: use_app_signal(|| false),
         position: use_app_signal(|| {
@@ -572,36 +610,13 @@ impl AppState {
             self.start_remote(track, 0.0);
             return;
         }
+        if track.media_type == "video" {
+            crate::video::start_local(self.clone(), track, 0.0);
+            return;
+        }
         self.cancel_remote();
         let mut video_url = self.video_url;
         video_url.set(None);
-        if track.media_type == "video" {
-            if let Ok(audio) = &self.services.audio {
-                if let Err(error) = audio.stop() {
-                    self.notify(error.to_string());
-                    return;
-                }
-            }
-            let mut state = self.clone();
-            state.playing.set(true);
-            state.position.set(0.0);
-            state.duration.set(track.duration);
-            state.current.set(Some(track.clone()));
-            state.video_track.set(Some(track.clone()));
-            state.video_open.set(true);
-            state.video_generation += 1;
-            state
-                .history
-                .write()
-                .retain(|previous| previous.id != track.id);
-            state.history.write().insert(0, track.clone());
-            if let Err(error) = state.services.core.record_playback(&track.id, 0.0) {
-                state.notify(error.to_string());
-            }
-            crate::native::record_recent(&track.path);
-            state.persist_playback();
-            return;
-        }
         let mut video = self.video_track;
         video.set(None);
         self.play_at(track, 0.0, true);
@@ -639,6 +654,7 @@ impl AppState {
                 s.duration.set(track.duration);
                 s.position.set(position);
                 s.playing.set(true);
+                s.record_session_departure(&track);
                 s.current.set(Some(track.clone()));
                 s.history.write().retain(|t| t.id != track.id);
                 s.history.write().insert(0, track.clone());
@@ -698,11 +714,8 @@ impl AppState {
         }
         if track.media_type == "video" {
             if self.video_track.peek().is_none() {
-                let mut state = self.clone();
-                state.video_track.set(Some(track));
-                state.video_open.set(true);
-                state.video_generation += 1;
-                state.playing.set(true);
+                let position = *self.position.peek();
+                crate::video::start_local(self.clone(), track, position);
             } else {
                 let operation = if *self.playing.peek() {
                     "pause"
@@ -751,9 +764,35 @@ impl AppState {
             return;
         }
         let first = tracks.remove(0);
+        let mut history = self.session_history;
+        history.write().clear();
         let mut queue = self.queue;
         queue.set(tracks);
-        self.play(first);
+        self.play_without_session_history(first);
+    }
+
+    /// Record only a genuine transition, not a retry, restart, or backward
+    /// navigation. Remote playback calls this immediately before changing current.
+    pub(crate) fn record_session_departure(&self, next: &Track) {
+        if self.suppress_session_history.get() {
+            return;
+        }
+        let previous = self.current.peek().clone();
+        if let Some(previous) = previous.filter(|track| playback_key(track) != playback_key(next)) {
+            let mut history = self.session_history;
+            let mut items = history.write();
+            items.push(previous);
+            if items.len() > 100 {
+                let excess = items.len() - 100;
+                items.drain(..excess);
+            }
+        }
+    }
+
+    fn play_without_session_history(&self, track: Track) {
+        self.suppress_session_history.set(true);
+        self.play(track);
+        self.suppress_session_history.set(false);
     }
 
     pub fn next(&self, automatic: bool) {
@@ -761,15 +800,25 @@ impl AppState {
         if automatic && repeat == 2 {
             let current = self.current.peek().clone();
             if let Some(track) = current {
-                self.play(track);
+                self.play_without_session_history(track);
             }
             return;
         }
         let mut tracks = self.queue.read().clone();
-        if repeat == 1 {
+        if automatic && repeat == 1 && tracks.is_empty() {
+            tracks = self.session_history.peek().clone();
             let current = self.current.peek().clone();
             if let Some(current) = current {
                 tracks.push(current);
+            }
+            if !tracks.is_empty() {
+                let first = tracks.remove(0);
+                let mut history = self.session_history;
+                history.write().clear();
+                let mut queue = self.queue;
+                queue.set(tracks);
+                self.play_without_session_history(first);
+                return;
             }
         }
         if tracks.is_empty() {
@@ -807,15 +856,28 @@ impl AppState {
             self.seek(0.0);
             return;
         }
-        let current_id = current.map(|v| v.id);
-        let previous = self
-            .history
-            .read()
-            .iter()
-            .find(|v| Some(&v.id) != current_id.as_ref())
-            .cloned();
+        let mut history = self.session_history;
+        let previous = history.write().pop();
         if let Some(track) = previous {
-            self.play(track);
+            let original_queue = self.queue.peek().clone();
+            if let Some(current) = current {
+                let mut queue = self.queue;
+                queue.write().insert(0, current);
+            }
+            self.play_without_session_history(track.clone());
+            if self
+                .current
+                .peek()
+                .as_ref()
+                .is_none_or(|current| current.id != track.id)
+            {
+                history.write().push(track);
+                let mut queue = self.queue;
+                queue.set(original_queue);
+            }
+            self.persist_playback();
+        } else {
+            self.seek(0.0);
         }
     }
 
@@ -910,8 +972,7 @@ impl AppState {
             if crate::remote::is_remote(&track) {
                 self.start_remote(track, position);
             } else if track.media_type == "video" {
-                self.play(track);
-                self.seek(position);
+                crate::video::start_local(self.clone(), track, position);
             } else {
                 self.play_at(track, position, false);
             }
@@ -957,9 +1018,9 @@ impl AppState {
     }
 
     pub fn persist_playback(&self) {
-        let mut queue: Vec<String> = self.queue.peek().iter().map(|t| t.id.clone()).collect();
+        let mut queue: Vec<String> = self.queue.peek().iter().map(playback_key).collect();
         let current_index = self.current.peek().as_ref().map(|track| {
-            queue.insert(0, track.id.clone());
+            queue.insert(0, playback_key(track));
             0
         });
         let state = PlaybackState {
@@ -968,8 +1029,15 @@ impl AppState {
                 .peek()
                 .iter()
                 .chain(self.queue.peek().iter())
+                .chain(self.session_history.peek().iter())
                 .filter(|track| crate::remote::is_remote(track))
                 .cloned()
+                .collect(),
+            session_history: self
+                .session_history
+                .peek()
+                .iter()
+                .map(playback_key)
                 .collect(),
             queue,
             current_index,
@@ -1415,7 +1483,7 @@ mod tests {
             position_seconds: 41.5,
             ..Default::default()
         };
-        let (current, queue) = restore_playback(&core, &playback);
+        let (current, queue, _) = restore_playback(&core, &playback);
         assert_eq!(current.unwrap().id, remote.id);
         assert!(queue.is_empty());
         assert!(core.library("").unwrap().is_empty());
@@ -1435,6 +1503,119 @@ mod tests {
         state.playback_rate = 100.0;
         assert!(save_playback_if_changed(&core, &cache, state).is_err());
         assert_eq!(cache.borrow().as_ref().unwrap().playback_rate, 1.0);
+    }
+
+    #[tokio::test]
+    async fn remote_selection_is_persisted_before_resolution_and_after_immediate_cancel() {
+        let profile = tempfile::tempdir().unwrap();
+        let services = Rc::new(Services::for_test(profile.path()));
+        let first = services.core.import_bytes("first.mp4", &[1, 2, 3]).unwrap();
+        let capture: CapturedState = Rc::new(RefCell::new(None));
+        let mut dom = VirtualDom::new(action_harness);
+        dom.insert_any_root_context(Box::new(services.clone()));
+        dom.insert_any_root_context(Box::new(capture.clone()));
+        dom.rebuild_in_place();
+        let state = capture.borrow().as_ref().unwrap().clone();
+        let remote = crate::remote::track_from_result(
+            yt_media::SearchResult {
+                id: "aqz-KE-bpKQ".into(),
+                url: "https://www.youtube.com/watch?v=aqz-KE-bpKQ".into(),
+                title: "Pending remote".into(),
+                thumbnail: String::new(),
+                duration_seconds: 635,
+                channel: String::new(),
+                view_count: 0,
+            },
+            true,
+        );
+        dom.in_scope(ScopeId::ROOT, || {
+            state.play(first.clone());
+            state.start_remote(remote.clone(), 41.5);
+            let saved = services.core.load_playback().unwrap();
+            assert_eq!(saved.queue, vec![playback_key(&remote)]);
+            assert_eq!(saved.session_history, vec![first.id.clone()]);
+            assert_eq!(saved.position_seconds, 41.5);
+            state.toggle_play();
+            assert!(!*state.stream_loading.peek());
+            assert_eq!(services.core.load_playback().unwrap(), saved);
+        });
+        // Never poll the network task: the selection and cancellation must have
+        // reached SQLite synchronously, without waiting for a periodic timer.
+        let saved = services.core.load_playback().unwrap();
+        assert_eq!(
+            restore_playback(&services.core, &saved).0.unwrap().id,
+            remote.id
+        );
+    }
+
+    #[tokio::test]
+    async fn persisted_remote_modes_remain_distinct_in_current_queue_and_history() {
+        let profile = tempfile::tempdir().unwrap();
+        let services = Rc::new(Services::for_test(profile.path()));
+        let capture: CapturedState = Rc::new(RefCell::new(None));
+        let mut dom = VirtualDom::new(action_harness);
+        dom.insert_any_root_context(Box::new(services.clone()));
+        dom.insert_any_root_context(Box::new(capture.clone()));
+        dom.rebuild_in_place();
+        let mut state = capture.borrow().as_ref().unwrap().clone();
+        let audio = crate::remote::track_from_result(
+            yt_media::SearchResult {
+                id: "aqz-KE-bpKQ".into(),
+                url: "https://www.youtube.com/watch?v=aqz-KE-bpKQ".into(),
+                title: "Same content, two modes".into(),
+                thumbnail: String::new(),
+                duration_seconds: 635,
+                channel: String::new(),
+                view_count: 0,
+            },
+            false,
+        );
+        let mut video = audio.clone();
+        video.media_type = "video".into();
+        video.extension = "mp4".into();
+        dom.in_scope(ScopeId::ROOT, || {
+            state.current.set(Some(audio.clone()));
+            state.record_session_departure(&video);
+            state.current.set(Some(video.clone()));
+            state
+                .queue
+                .set(vec![audio.clone(), video.clone(), audio.clone()]);
+            state.persist_playback();
+        });
+        let saved = services.core.load_playback().unwrap();
+        assert_eq!(
+            saved.queue,
+            vec![
+                playback_key(&video),
+                playback_key(&audio),
+                playback_key(&video),
+                playback_key(&audio)
+            ]
+        );
+        let (current, queue, history) = restore_playback(&services.core, &saved);
+        assert_eq!(current.unwrap().media_type, "video");
+        assert_eq!(
+            queue
+                .iter()
+                .map(|track| track.media_type.as_str())
+                .collect::<Vec<_>>(),
+            vec!["audio", "video", "audio"]
+        );
+        assert_eq!(history[0].media_type, "audio");
+        assert!(queue.iter().all(|track| track.id == audio.id));
+        assert!(services.core.library("").unwrap().is_empty());
+        let mut legacy = saved;
+        legacy.queue = vec![video.id.clone()];
+        legacy.session_history.clear();
+        assert_eq!(
+            restore_playback(&services.core, &legacy)
+                .0
+                .unwrap()
+                .media_type,
+            "video"
+        );
+        legacy.queue = vec![format!("{}:invalid-mode", video.id)];
+        assert!(restore_playback(&services.core, &legacy).0.is_none());
     }
 
     #[test]
@@ -1683,6 +1864,113 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn session_back_stack_restores_forward_queue_and_late_repeat_all() {
+        let profile = tempfile::tempdir().unwrap();
+        let services = Rc::new(Services::for_test(profile.path()));
+        let tracks = ["A.mp4", "B.mp4", "C.mp4"]
+            .map(|name| services.core.import_bytes(name, &[1, 2, 3]).unwrap());
+        let capture: CapturedState = Rc::new(RefCell::new(None));
+        let mut dom = VirtualDom::new(action_harness);
+        dom.insert_any_root_context(Box::new(services.clone()));
+        dom.insert_any_root_context(Box::new(capture.clone()));
+        dom.rebuild_in_place();
+        let mut state = capture.borrow().as_ref().unwrap().clone();
+        dom.in_scope(ScopeId::ROOT, || {
+            state.play_all(tracks.to_vec(), false);
+            state.next(false);
+            state.next(false);
+            assert_eq!(state.current.peek().as_ref().unwrap().id, tracks[2].id);
+            assert_eq!(
+                state
+                    .session_history
+                    .peek()
+                    .iter()
+                    .map(|t| &t.id)
+                    .collect::<Vec<_>>(),
+                vec![&tracks[0].id, &tracks[1].id]
+            );
+            state.previous();
+            assert_eq!(state.current.peek().as_ref().unwrap().id, tracks[1].id);
+            state.previous();
+            assert_eq!(state.current.peek().as_ref().unwrap().id, tracks[0].id);
+            assert!(state.session_history.peek().is_empty());
+            assert_eq!(
+                state.queue.peek().iter().map(|t| &t.id).collect::<Vec<_>>(),
+                vec![&tracks[1].id, &tracks[2].id]
+            );
+            state.next(false);
+            assert_eq!(state.current.peek().as_ref().unwrap().id, tracks[1].id);
+            state.next(false);
+            assert_eq!(state.current.peek().as_ref().unwrap().id, tracks[2].id);
+            state.repeat.set(1);
+            state.next(true);
+            assert_eq!(state.current.peek().as_ref().unwrap().id, tracks[0].id);
+            assert!(state.session_history.peek().is_empty());
+            assert_eq!(
+                state.queue.peek().iter().map(|t| &t.id).collect::<Vec<_>>(),
+                vec![&tracks[1].id, &tracks[2].id]
+            );
+            state.next(true);
+            state.next(true);
+            state.next(true);
+            assert_eq!(state.current.peek().as_ref().unwrap().id, tracks[0].id);
+            state.play_all(vec![tracks[2].clone()], false);
+            assert!(state.session_history.peek().is_empty());
+            state.previous();
+            assert_eq!(state.current.peek().as_ref().unwrap().id, tracks[2].id);
+            assert_eq!(
+                services.core.load_playback().unwrap().session_history,
+                Vec::<String>::new()
+            );
+        });
+    }
+
+    #[tokio::test]
+    async fn session_history_persists_remote_tracks_and_validates_them_on_restore() {
+        let profile = tempfile::tempdir().unwrap();
+        let services = Rc::new(Services::for_test(profile.path()));
+        let current = services
+            .core
+            .import_bytes("current.mp4", &[1, 2, 3])
+            .unwrap();
+        let remote = crate::remote::track_from_result(
+            yt_media::SearchResult {
+                id: "aqz-KE-bpKQ".into(),
+                url: "https://www.youtube.com/watch?v=aqz-KE-bpKQ".into(),
+                title: "Remote history".into(),
+                thumbnail: String::new(),
+                duration_seconds: 635,
+                channel: "Channel".into(),
+                view_count: 0,
+            },
+            false,
+        );
+        let capture: CapturedState = Rc::new(RefCell::new(None));
+        let mut dom = VirtualDom::new(action_harness);
+        dom.insert_any_root_context(Box::new(services.clone()));
+        dom.insert_any_root_context(Box::new(capture.clone()));
+        dom.rebuild_in_place();
+        let mut state = capture.borrow().as_ref().unwrap().clone();
+        dom.in_scope(ScopeId::ROOT, || {
+            state.current.set(Some(remote.clone()));
+            state.play(current.clone());
+            assert_eq!(state.session_history.peek()[0].id, remote.id);
+        });
+        let mut saved = services.core.load_playback().unwrap();
+        assert_eq!(saved.session_history, vec![playback_key(&remote)]);
+        assert!(saved
+            .remote_tracks
+            .iter()
+            .any(|track| track.id == remote.id));
+        let (restored, _, history) = restore_playback(&services.core, &saved);
+        assert_eq!(restored.unwrap().id, current.id);
+        assert_eq!(history[0].source_url, remote.source_url);
+        assert_eq!(services.core.library("").unwrap().len(), 1);
+        saved.remote_tracks[0].source_url = "https://example.invalid/watch?v=aqz-KE-bpKQ".into();
+        assert!(restore_playback(&services.core, &saved).2.is_empty());
+    }
+
+    #[tokio::test]
     async fn virtual_dom_playback_actions_release_signal_borrows_before_mutation() {
         let profile = tempfile::TempDir::new().unwrap();
         let services = Rc::new(Services::for_test(profile.path()));
@@ -1725,7 +2013,7 @@ mod tests {
             state.repeat.set(0);
             state.next(false);
             assert_eq!(state.current.peek().as_ref().unwrap().id, second.id);
-            state.history.set(vec![second.clone(), third.clone()]);
+            state.session_history.set(vec![third.clone()]);
             state.position.set(15.0);
             state.previous();
             assert_eq!(state.current.peek().as_ref().unwrap().id, second.id);

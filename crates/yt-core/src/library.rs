@@ -411,7 +411,8 @@ impl AppCore {
             && !track.missing
         {
             self.refresh_embedded_artwork(&id, &track.path);
-            return Ok(Some(track));
+            self.repair_video_metadata(&track)?;
+            return self.track(&id).map(Some);
         }
         let existing: Option<String> = {
             let relative = source
@@ -428,6 +429,7 @@ impl AppCore {
         };
         if let Some(id) = existing {
             self.refresh_embedded_artwork(&id, &source);
+            self.repair_video_metadata(&self.track(&id)?)?;
             return self.track(&id).map(Some);
         }
 
@@ -502,10 +504,21 @@ impl AppCore {
         if let Ok(tagged) = Probe::open(destination)
             .and_then(|p| Ok(p.guess_file_type()?))
             .and_then(|p| p.read())
+            .or_else(|_| {
+                Probe::open(destination)?
+                    .guess_file_type()?
+                    .options(lofty::config::ParseOptions::new().read_properties(false))
+                    .read()
+            })
         {
             artwork_path = self.cache_tag_artwork(&tagged).unwrap_or_default();
             duration = tagged.properties().duration().as_secs_f64();
-            bitrate = tagged.properties().audio_bitrate().unwrap_or(0);
+            // Lofty exposes kbps; the shared v4 database stores bits/second.
+            bitrate = tagged
+                .properties()
+                .audio_bitrate()
+                .unwrap_or(0)
+                .saturating_mul(1000);
             sample_rate = tagged.properties().sample_rate().unwrap_or(0);
             if let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) {
                 if let Some(value) = tag.title().filter(|v| !v.trim().is_empty()) {
@@ -513,6 +526,33 @@ impl AppCore {
                 }
                 artist = tag.artist().map(|v| v.into_owned()).unwrap_or_default();
                 album = tag.album().map(|v| v.into_owned()).unwrap_or_default();
+            }
+        }
+        if let Some(properties) = crate::video_metadata::probe(destination) {
+            // Movie duration may exceed its audio track duration.
+            if properties.duration > 0.0 {
+                duration = properties.duration;
+            }
+            if bitrate == 0 {
+                bitrate = properties.bitrate;
+            }
+            if sample_rate == 0 {
+                sample_rate = properties.sample_rate;
+            }
+            if title
+                == Path::new(filename)
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                && !properties.title.is_empty()
+            {
+                title = properties.title;
+            }
+            if artist.is_empty() {
+                artist = properties.artist;
+            }
+            if album.is_empty() {
+                album = properties.album;
             }
         }
         let (media_type, mime_type) = media_kind(extension);
@@ -749,11 +789,38 @@ impl AppCore {
     }
 
     pub fn scan_library(&self) -> Result<ImportReport> {
-        self.import_paths_checked(
+        let mut report = self.import_paths_checked(
             &[self.library_dir().to_owned()],
             ImportMode::Reference,
             false,
-        )
+        )?;
+        // Repair old imports, including references outside the managed folder,
+        // without changing identifiers, paths, memberships or user metadata.
+        for track in self.library("")? {
+            self.repair_video_metadata(&track)?;
+        }
+        for track in &mut report.tracks {
+            *track = self.track(&track.id)?;
+        }
+        Ok(report)
+    }
+
+    fn repair_video_metadata(&self, track: &Track) -> Result<()> {
+        if track.missing || track.media_type != "video" || track.duration > 0.0 {
+            return Ok(());
+        }
+        let Some(properties) = crate::video_metadata::probe(&track.path) else {
+            return Ok(());
+        };
+        if properties.duration <= 0.0 {
+            return Ok(());
+        }
+        let fallback = Path::new(&track.filename)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy();
+        self.connection()?.execute("UPDATE tracks SET duration=?1,bitrate=CASE WHEN bitrate=0 THEN ?2 ELSE bitrate END,sample_rate=CASE WHEN sample_rate=0 THEN ?3 ELSE sample_rate END,title=CASE WHEN title=?4 AND ?5!='' THEN ?5 ELSE title END,artist=CASE WHEN artist='' THEN ?6 ELSE artist END,album=CASE WHEN album='' THEN ?7 ELSE album END,updated_at=?8 WHERE id=?9 AND duration<=0",params![properties.duration,properties.bitrate,properties.sample_rate,fallback,properties.title,properties.artist,properties.album,now(),track.id])?;
+        Ok(())
     }
 
     pub fn update_track_metadata(

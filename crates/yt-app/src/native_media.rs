@@ -87,6 +87,24 @@ pub(super) fn use_media_controls(state: AppState) {
                 &format!("OS media metadata: {error}"),
             );
         }
+        #[cfg(target_os = "windows")]
+        if cover.is_none() {
+            // Souvlaki leaves a previous thumbnail unchanged for None.
+            if let Err(error) = clear_native_artwork() {
+                record_log(
+                    &metadata_state.services.profile,
+                    &format!("OS media artwork: {error}"),
+                );
+            }
+        }
+        // Replacing the Now Playing dictionary also replaces its rate entry.
+        publish_rate(&metadata_state);
+    });
+    let rate_state = state.clone();
+    use_effect(move || {
+        let _ = *rate_state.rate.read();
+        let _ = *rate_state.playing.read();
+        publish_rate(&rate_state);
     });
     let playback_controls = controls.clone();
     use_effect(move || {
@@ -130,6 +148,77 @@ pub(super) fn use_media_controls(state: AppState) {
             let _ = controls.detach();
         }
     });
+}
+
+fn publish_rate(state: &AppState) {
+    let rate = f64::from(*state.rate.peek());
+    let rate = if rate.is_finite() && rate > 0.0 {
+        rate
+    } else {
+        1.0
+    };
+    let playing = *state.playing.peek();
+    if let Err(error) = set_native_rate(rate, playing) {
+        record_log(&state.services.profile, &format!("OS media rate: {error}"));
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn native_transport_controls() -> windows::core::Result<windows::Media::SystemMediaTransportControls>
+{
+    use dioxus::desktop::tao::platform::windows::WindowExtWindows;
+    use windows::{
+        Media::SystemMediaTransportControls,
+        Win32::{Foundation::HWND, System::WinRT::ISystemMediaTransportControlsInterop},
+    };
+    let interop: ISystemMediaTransportControlsInterop = windows::core::factory::<
+        SystemMediaTransportControls,
+        ISystemMediaTransportControlsInterop,
+    >()?;
+    let window = dioxus::desktop::window();
+    // SAFETY: effects run on the UI thread and the Tao HWND remains alive.
+    unsafe { interop.GetForWindow(HWND(window.window.hwnd() as *mut std::ffi::c_void)) }
+}
+
+#[cfg(target_os = "windows")]
+fn clear_native_artwork() -> windows::core::Result<()> {
+    let display = native_transport_controls()?.DisplayUpdater()?;
+    display.SetThumbnail(None::<&windows::Storage::Streams::RandomAccessStreamReference>)?;
+    display.Update()
+}
+
+#[cfg(target_os = "windows")]
+fn set_native_rate(rate: f64, _playing: bool) -> Result<(), String> {
+    native_transport_controls()
+        .and_then(|controls| controls.SetPlaybackRate(rate))
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn set_native_rate(rate: f64, playing: bool) -> Result<(), String> {
+    use objc2::{class, msg_send, rc::Retained, runtime::AnyObject};
+    #[link(name = "MediaPlayer", kind = "framework")]
+    unsafe extern "C" {
+        static MPNowPlayingInfoPropertyPlaybackRate: *const AnyObject;
+    }
+    // Public MediaPlayer API. Souvlaki updates position/state but does not set
+    // this property; it must be zero while paused to stop OS extrapolation.
+    // SAFETY: these are documented Foundation/MediaPlayer selectors, called on
+    // the UI thread. Retained owns every returned Objective-C object.
+    unsafe {
+        let center: Retained<AnyObject> = msg_send![class!(MPNowPlayingInfoCenter), defaultCenter];
+        let info: Option<Retained<AnyObject>> = msg_send![&*center, nowPlayingInfo];
+        let Some(info) = info else {
+            return Ok(());
+        };
+        let updated: Retained<AnyObject> = msg_send![&*info, mutableCopy];
+        let number: Retained<AnyObject> =
+            msg_send![class!(NSNumber), numberWithDouble: if playing { rate } else { 0.0 }];
+        let _: () =
+            msg_send![&*updated, setObject: &*number, forKey: MPNowPlayingInfoPropertyPlaybackRate];
+        let _: () = msg_send![&*center, setNowPlayingInfo: &*updated];
+    }
+    Ok(())
 }
 
 fn seconds(value: f64) -> Duration {

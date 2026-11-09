@@ -15,6 +15,7 @@ HTTP service is needed for playback, YouTube resolution or downloads.
 | Video muxing | Pure Rust MP4/fMP4 demux and mux preserve encoded samples, codec configuration, DTS/CTS, keyframes, edit lists, rotation and language. No external FFmpeg runs. Files with discontinuous timelines, segments/metadata above 64 MiB, or more than two million samples per track are explicitly rejected. |
 | Video selection | Best or a maximum height from 144p to 4320p. Returns the actual resolution and separate original MP4 video/AAC tracks where DASH is needed. H.264 is preferred at equal height and frame rate for compatibility. |
 | Temporary video playback | `prepare_video` selects H.264/AAC, downloads and muxes original tracks into an owned temporary MP4 outside the library. It reports bytes and actual resolution, supports cancellation, and removes its files on drop. This fallback waits for preparation when no progressive video is available; it does not depend on HLS support in the Windows WebView. |
+| Local Matroska video | `prepare_local_video` remuxes AVC/HEVC with AAC-LC into MP4, including B pictures, variable cadence, crop/aspect, codec delay and final audio padding. VP8/VP9 with Vorbis/Opus is rewrapped as WebM while preserving retained payloads and seek offsets; inputs without incompatible tracks retain the entire Segment. Originals remain untouched; temporary output belongs to its returned handle. |
 | Downloads | Bounded ranges, known complete length verification, cancellation, progress and atomic no-clobber completion. Failed/aborted transfers remove temporary files. |
 | Resumable downloads | Durable ID/itag/language/DRC/size/SHA256 checkpoints, OS file locks and validated range retries. Restarting with a fresh URL resumes committed bytes; corrupted or mismatched partials are rejected. Cancellation pauses; explicit discard deletes only the matching inactive job. |
 | Subtitles | Lists the actual caption tracks, downloads the exact selected language, and exports timed SRT/WebVTT without a subprocess. |
@@ -88,6 +89,67 @@ checkpoint for a retry; after the future finishes, `discard_resume` explicitly
 removes that matching job's partial files. Neither operation overwrites a final
 file. Checkpoint digests are validated before truncating an uncommitted tail or
 requesting any additional bytes.
+
+## Local video preparation
+
+Run the blocking `prepare_local_video(&path, cancel, progress)` on a worker. The
+returned `PreparedLocalVideo` exposes its path, duration and coded dimensions;
+keeping the handle alive keeps the temporary file alive. The app's private
+preview registry also retains that handle while range requests are in flight.
+No source is imported, modified, renamed, or deleted by preparation.
+
+The EBML index bounds metadata at 8 MiB, a block at 64 MiB and indexed frames at
+two million. Media payloads are copied in 64 KiB chunks. It skips untrusted seek
+offsets and preserves all three audio lacing modes. AVC/HEVC preparation selects
+the enabled/default video and audio tracks; it does not copy embedded subtitle,
+attachment or additional audio tracks into the temporary MP4. WebM preparation
+keeps supported WebM audio/video tracks. Unsupported tracks, their blocks and
+their cue entries are replaced with equal-length EBML Void elements, retaining
+every surviving Segment/Cluster-relative seek offset and encoded payload. CRC-32
+elements in changed ancestors are removed; unchanged inputs retain their exact
+Segment bytes. This also handles unknown-length Clusters and mixed-track Cues.
+AVC/HEVC can play without sound when no compatible AAC track is present;
+`PreparedLocalVideo::warnings()` explains that limitation to the app. An available
+compatible AAC track is preferred over an unsupported audio track. This does not
+decode AC3 or render embedded subtitles.
+
+Matroska supplies presentation timestamps and decode packet order, but no DTS.
+The mux builds a monotonic decode clock without sorting encoded packets. Each
+picture retains its presentation interval; CTS and edit lists preserve the
+original timeline, including reordered variable-rate pictures. The final
+presented picture needs an explicit `BlockDuration` or `DefaultDuration`.
+AAC-LC uses its 1,024-sample clock and preserves `CodecDelay`/`DiscardPadding`.
+Identical in-band AVC/HEVC parameter sets move into the MP4 sample description;
+coded pictures and SEI bytes remain unchanged. Changes of codec configuration,
+encryption/container compression of the selected video, malformed supported audio
+or timestamps, and non-unit deprecated track timestamp scales return explicit
+errors. HEVC and VP9 playback still requires the system decoder for that profile.
+
+`cargo run -p yt-media --example local_video_probe -- source.mkv [new-output.mp4]`
+prepares a file and optionally copies the result to a destination that must not
+already exist. Unit tests cover reordered and variable-rate timelines, AAC
+padding/lacing, duplicate parameter sets, display crop/aspect, cancellation,
+truncation and owned temporary-file cleanup.
+
+On 2026-11-08, integration probes used the public W3C
+[Sintel MP4](https://media.w3.org/2010/05/sintel/trailer.mp4) and
+[WebM](https://media.w3.org/2010/05/sintel/trailer.webm). Rust generated Matroska
+fixtures from the MP4 without changing its encoded media. All 1,253 AVC pictures,
+2,435 AAC packets and 4,986,880 decoded audio samples were identical after remux.
+The WebM Segment retained all 3,521 packets. A five-second HEVC fixture generated
+with the macOS encoder retained 120 pictures, 237 AAC packets and its exact
+five-second presentation interval. A second Sintel fixture varies picture
+cadence while retaining real B pictures; all presentation times survive within
+the original millisecond timestamp precision. The ignored tests use
+`YTU_LOCAL_VIDEO_FIXTURE`, `YTU_LOCAL_WEBM_FIXTURE` and `YTU_LOCAL_HEVC_FIXTURE`;
+ordinary tests require neither downloads nor system video decoding.
+
+Additional macOS AVFoundation decodes produced 1,253 SHA-256-identical AVC
+images, 120 identical HEVC images, and 1,253 identical images from the variable
+cadence fixture. Maximum presentation timestamp differences were 0.334 ms for
+AVC/HEVC and 0.501 ms for the variable-cadence timeline. This checks actual image
+decoding in addition to MP4 tables;
+it does not establish support for every codec profile on every Windows machine.
 
 ## Build dependencies and limitations
 

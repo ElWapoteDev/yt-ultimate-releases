@@ -76,6 +76,14 @@ does not replace the bundled C source's LGPL-2.1-or-later terms. Preserve
 [`LICENSE-SOXR`](LICENSE-SOXR) with distribution notices. Static-library source
 and relinking material must be considered by the distribution packaging.
 
+The native variable-rate implementation initializes process-global coefficient
+tables without synchronization. The Rust wrapper serializes only creation of a
+resampler; processing remains concurrent. A fresh-process regression starts 16
+constructors simultaneously and compares every output sample and audit marker
+with a serial reference. It reproduced a 0.414965 maximum sample error before
+the guard and produces identical results with it. Signal audits and numerical
+tolerances are unchanged.
+
 Primary implementation references: [SoXR API](https://github.com/chirlu/soxr/blob/master/src/soxr.h),
 [LiveKit Rust SDK sources](https://github.com/livekit/rust-sdks),
 [RustFFT](https://github.com/ejmahler/RustFFT). The legacy contract is in

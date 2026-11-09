@@ -8,6 +8,7 @@ mod library;
 mod models;
 mod playlists;
 mod settings;
+mod video_metadata;
 
 pub use artwork::{MAX_ARTWORK_BYTES, validate_artwork};
 pub use models::*;

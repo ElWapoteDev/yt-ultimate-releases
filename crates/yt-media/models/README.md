@@ -85,3 +85,8 @@ callers that skip preparation retain the separator's Rodio linear conversion;
 The output is always stereo 44.1 kHz float WAV. Cancellation takes effect between
 native inference calls and while decoding/writing; an active LibTorch call runs
 to completion before cancellation is observed.
+
+An optional [portable-graph research exporter](../../../packaging/research/STEMS_GPU.md)
+demonstrates a separate float32 candidate with identical CPU output and working
+Metal inference. On the tested Mac its Metal inference was slower than CPU, so
+the shipped model, its SHA-256 and the safe CPU fallback remain unchanged.

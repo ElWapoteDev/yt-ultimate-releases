@@ -314,6 +314,13 @@ pub fn use_document_controls(state: AppState, menus: Menus) -> Signal<bool> {
             let mut eval = document::eval(
                 r#"
 let depth=0;
+const hideDrop=()=>{depth=0;dioxus.send('hide-drop');};
+const outgoingDrag=()=>!!document.documentElement.dataset.ytuOutgoingDrag;
+window.addEventListener('ytu-outgoing-drag',hideDrop);
+window.addEventListener('dragstart',hideDrop);
+// Native outbound files must not be interpreted as new library imports.
+// HTML playlist/queue reordering never sets this native-session marker.
+window.addEventListener('drop',e=>{if(outgoingDrag()){e.preventDefault();e.stopImmediatePropagation();hideDrop();}},true);
 document.addEventListener('keydown',e=>{
     if (e.defaultPrevented || e.key !== ' ' || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target?.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])')) return;
@@ -322,7 +329,8 @@ document.addEventListener('keydown',e=>{
 window.addEventListener('wheel',e=>{if (!e.target?.closest('.context-menu-layer')) dioxus.send('close');},{passive:true});
 window.addEventListener('resize',()=>dioxus.send('close'));
 window.addEventListener('blur',()=>{depth=0;dioxus.send('hide-drop');dioxus.send('close');});
-window.addEventListener('dragenter',e=>{if(Array.from(e.dataTransfer?.types || []).includes('Files')) {e.preventDefault();depth++;dioxus.send('show-drop');}});
+window.addEventListener('dragenter',e=>{if(outgoingDrag()){hideDrop();return;}if(Array.from(e.dataTransfer?.types || []).includes('Files')) {e.preventDefault();depth++;dioxus.send('show-drop');}});
+window.addEventListener('dragover',e=>{if(Array.from(e.dataTransfer?.types || []).includes('Files')){e.preventDefault();e.dataTransfer.dropEffect=outgoingDrag()?'none':'copy';}});
 window.addEventListener('dragleave',e=>{if(Array.from(e.dataTransfer?.types || []).includes('Files')) {depth=Math.max(0,depth-1);if(!depth)dioxus.send('hide-drop');}});
 window.addEventListener('drop',()=>{depth=0;dioxus.send('hide-drop');});
 window.addEventListener('dragend',()=>{depth=0;dioxus.send('hide-drop');});
@@ -332,7 +340,7 @@ window.addEventListener('dragend',()=>{depth=0;dioxus.send('hide-drop');});
                 match event.as_str() {
                     "play" => state.toggle_play(),
                     "close" => menus.close(),
-                    "show-drop" => importing.set(true),
+                    "show-drop" => importing.set(!crate::native::outgoing_media_drag_active()),
                     "hide-drop" => importing.set(false),
                     _ => {}
                 }

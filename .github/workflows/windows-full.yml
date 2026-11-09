@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-full-${{ github.ref }}-${{ github.sha }}
+  group: windows-full-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -38,6 +38,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 120
     env:
+      SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
       CARGO_TERM_COLOR: always
       CARGO_BUILD_JOBS: '2'
       CARGO_INCREMENTAL: '0'
@@ -45,6 +46,14 @@ jobs:
       MKL_NUM_THREADS: '2'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify the exact release source before compiling
+        shell: pwsh
+        run: python packaging/ci/source-provenance.py --expected-commit $env:SOURCE_COMMIT
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -113,14 +122,18 @@ jobs:
           $installers = @(Get-ChildItem -Path 'target/packages/x86_64-pc-windows-msvc/*/full/*_full-setup.exe')
           if ($installers.Count -ne 1) { throw 'Expected exactly one newly built Full installer' }
           ./packaging/ci/windows-installed-smoke.ps1 -Installer $installers[0].FullName -InstalledExecutableName 'YT Ultimate.exe' -LegacyInstaller $legacy -ResultsDirectory target/ci-results/windows-upgrade
+      - name: Bind the installer checksum to the exact source commit
+        shell: pwsh
+        run: python packaging/ci/source-provenance.py --expected-commit $env:SOURCE_COMMIT --package-root target/packages/x86_64-pc-windows-msvc
       - name: Upload Full installer and evidence for review
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: YT-Ultimate-Windows-Full-${{ github.sha }}
+          name: YT-Ultimate-Windows-Full-${{ env.SOURCE_COMMIT }}
           path: |
             target/packages/x86_64-pc-windows-msvc/*/full/*_full-setup.exe
             target/packages/x86_64-pc-windows-msvc/*/full/SHA256SUMS
+            target/packages/x86_64-pc-windows-msvc/*/full/BUILD-SOURCE.json
             target/ci-results/windows-installed/
             target/ci-results/windows-upgrade/
           if-no-files-found: warn

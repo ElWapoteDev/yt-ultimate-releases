@@ -48,10 +48,10 @@ pub fn QueuePanel() -> Element {
     let current = state.current.read().clone();
     let queue = state.queue.read().clone();
     let history = state
-        .history
+        .session_history
         .read()
         .iter()
-        .filter(|item| current.as_ref().is_none_or(|current| current.id != item.id))
+        .rev()
         .take(12)
         .cloned()
         .collect::<Vec<_>>();

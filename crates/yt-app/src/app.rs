@@ -77,6 +77,7 @@ fn Application(props: ApplicationProps) -> Element {
             ondragover: |event| event.prevent_default(),
             ondrop: move |event| {
                 event.prevent_default();
+                if crate::native::outgoing_media_drag_active() { return; }
                 let paths = event.files().iter().map(|file| file.path()).collect::<Vec<_>>();
                 if !paths.is_empty() { let state = drop_state.clone(); spawn(async move { state.import_paths(paths).await; }); }
             },

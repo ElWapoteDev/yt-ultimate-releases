@@ -14,6 +14,7 @@ native-stems = ["dep:tch", "dep:hound"]
 dirs = "6"
 futures-util = "0.3"
 innertube-rs = "0.10.1"
+matroska-demuxer = "=0.8.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
 rodio = { version = "0.21.1", default-features = false, features = ["playback", "symphonia-all"] }
 rusqlite = { version = "0.32.1", features = ["bundled"] }

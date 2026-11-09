@@ -15,6 +15,7 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 240
     env:
+      SOURCE_COMMIT: ${{ github.sha }}
       CARGO_BUILD_JOBS: '2'
       CARGO_INCREMENTAL: '0'
       MACOSX_DEPLOYMENT_TARGET: '14.0'
@@ -23,9 +24,13 @@ jobs:
       MKL_NUM_THREADS: '2'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Verify the exact release source before compiling
+        run: python3 packaging/ci/source-provenance.py --expected-commit "$SOURCE_COMMIT"
       - name: Restore the exact Intel LibTorch build
         id: torch-cache
         uses: actions/cache/restore@v4
@@ -122,14 +127,17 @@ jobs:
           cargo build --locked --release -p yt-quality --features native-stems --example quality_probe
       - name: Verify native window, profile lock and inference using bundled libraries
         run: python3 packaging/ci/macos-installed-smoke.py --package-root target/packages/x86_64-apple-darwin --results target/ci-results/intel-installed
+      - name: Bind the installer checksum to the exact source commit
+        run: python3 packaging/ci/source-provenance.py --expected-commit "$SOURCE_COMMIT" --package-root target/packages/x86_64-apple-darwin
       - name: Save installer and all evidence without publishing a release
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: YT-Ultimate-Mac-Intel-Full-${{ github.sha }}
+          name: YT-Ultimate-Mac-Intel-Full-${{ env.SOURCE_COMMIT }}
           path: |
             target/packages/x86_64-apple-darwin/*/full/*.dmg
             target/packages/x86_64-apple-darwin/*/full/SHA256SUMS
+            target/packages/x86_64-apple-darwin/*/full/BUILD-SOURCE.json
             target/ci-results/
           if-no-files-found: warn
           retention-days: 14

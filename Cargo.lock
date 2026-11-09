@@ -3738,6 +3738,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "matroska-demuxer"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cbf36668475a45a46bf8710e927e7458b7c387e7c46ddb5457ae0c71cf5e817"
+
+[[package]]
 name = "maybe-rayon"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8508,6 +8514,7 @@ name = "yt-app"
 version = "5.0.1"
 dependencies = [
  "arboard",
+ "block2",
  "chrono",
  "dioxus",
  "dioxus-ssr",
@@ -8524,6 +8531,7 @@ dependencies = [
  "tokio",
  "url",
  "window-vibrancy",
+ "windows 0.62.2",
  "winresource",
  "yt-audio",
  "yt-core",
@@ -8565,10 +8573,12 @@ version = "5.0.1"
 dependencies = [
  "image",
  "lofty",
+ "matroska-demuxer",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2",
+ "shiguredo_mp4",
  "tempfile",
  "thiserror 2.0.21",
  "uuid",
@@ -8586,6 +8596,7 @@ dependencies = [
  "futures-util",
  "hound",
  "innertube-rs",
+ "matroska-demuxer",
  "pbkdf2 0.12.2",
  "reqwest",
  "rodio",

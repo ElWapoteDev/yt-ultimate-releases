@@ -113,10 +113,16 @@ impl AppState {
         state.playback_error.set(None);
         state.video_track.set(None);
         state.video_url.set(None);
+        state.record_session_departure(&track);
         state.current.set(Some(track.clone()));
         state.duration.set(track.duration);
-        state.position.set(position.max(0.0));
+        state.position.set(if position.is_finite() {
+            position.max(0.0)
+        } else {
+            0.0
+        });
         state.playing.set(false);
+        state.persist_playback();
         if let Ok(audio) = &state.services.audio {
             let _ = audio.stop();
         }

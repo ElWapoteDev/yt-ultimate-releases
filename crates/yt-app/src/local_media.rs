@@ -51,12 +51,33 @@ pub fn media_url(id: &str) -> String {
     format!("/media/{id}")
 }
 
-static PREPARED_VIDEO: Mutex<Option<(String, Arc<yt_media::PreparedVideo>)>> = Mutex::new(None);
+#[derive(Clone)]
+enum PreparedAsset {
+    Remote(Arc<yt_media::PreparedVideo>),
+    Local(Arc<yt_media::PreparedLocalVideo>),
+}
+impl PreparedAsset {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Remote(video) => video.path(),
+            Self::Local(video) => video.path(),
+        }
+    }
+}
+static PREPARED_VIDEO: Mutex<Option<(String, PreparedAsset)>> = Mutex::new(None);
 
 /// Only complete, application-owned media can enter this ephemeral registry.
 /// Replacing or clearing it drops the previous temporary file after in-flight
 /// range requests release their own reference.
 pub fn register_prepared_video(video: Arc<yt_media::PreparedVideo>) -> String {
+    register_prepared(PreparedAsset::Remote(video))
+}
+
+pub fn register_prepared_local_video(video: Arc<yt_media::PreparedLocalVideo>) -> String {
+    register_prepared(PreparedAsset::Local(video))
+}
+
+fn register_prepared(video: PreparedAsset) -> String {
     let token = format!("{:032x}", rand::random::<u128>());
     let url = format!("/preview/{token}");
     *PREPARED_VIDEO.lock().unwrap_or_else(|e| e.into_inner()) = Some((token, video));

@@ -156,6 +156,10 @@ pub struct Job {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PlaybackState {
     pub queue: Vec<String>,
+    /// Tracks left behind in this playback session, oldest first. This stack
+    /// is independent of the library's deduplicated recent-play history.
+    #[serde(default)]
+    pub session_history: Vec<String>,
     /// Unresolved remote queue entries. Store canonical source URLs only;
     /// signed transport URLs and credentials do not belong in playback state.
     #[serde(default)]
@@ -172,6 +176,7 @@ impl Default for PlaybackState {
     fn default() -> Self {
         Self {
             queue: Vec::new(),
+            session_history: Vec::new(),
             remote_tracks: Vec::new(),
             current_index: None,
             position_seconds: 0.0,

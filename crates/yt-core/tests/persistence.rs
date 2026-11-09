@@ -570,8 +570,10 @@ fn remote_playback_survives_restart_without_becoming_library_media() {
     let core = AppCore::open(temp.path()).unwrap();
     let mut legacy = serde_json::to_value(PlaybackState::default()).unwrap();
     legacy.as_object_mut().unwrap().remove("remote_tracks");
+    legacy.as_object_mut().unwrap().remove("session_history");
     core.set_setting("rust.playback", &legacy).unwrap();
     assert!(core.load_playback().unwrap().remote_tracks.is_empty());
+    assert!(core.load_playback().unwrap().session_history.is_empty());
     let track = yt_core::Track {
         id: "youtube:abcdefghijk".into(),
         title: "Remote song".into(),
@@ -591,6 +593,7 @@ fn remote_playback_survives_restart_without_becoming_library_media() {
     };
     let state = PlaybackState {
         queue: vec![track.id.clone()],
+        session_history: vec![track.id.clone()],
         remote_tracks: vec![track],
         current_index: Some(0),
         position_seconds: 2.5,
