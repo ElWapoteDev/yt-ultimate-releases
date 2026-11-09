@@ -31,10 +31,27 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/libtorch-intel-2.12.0
-          key: libtorch-2.12.0-macos15-intel-cpu-${{ hashFiles('packaging/ci/build-libtorch-intel.sh') }}
-      - name: Build and validate LibTorch 2.12 CPU from official sources
+          key: libtorch-2.12.0-macos15-intel-validated-${{ hashFiles('packaging/ci/build-libtorch-intel.sh', 'packaging/ci/validate-libtorch-intel.sh', 'packaging/ci/macos-installed-smoke.py') }}
+      - name: Restore the compiled library before post-build validation
+        id: torch-compiled-cache
         if: steps.torch-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/libtorch-intel-2.12.0
+          # Validation-only fixes must not discard a two-hour source build.
+          key: libtorch-2.12.0-macos15-intel-compiled-${{ hashFiles('packaging/ci/build-libtorch-intel.sh') }}
+      - name: Compile LibTorch 2.12 CPU from official sources
+        if: steps.torch-cache.outputs.cache-hit != 'true' && steps.torch-compiled-cache.outputs.cache-hit != 'true'
         run: bash packaging/ci/build-libtorch-intel.sh
+      - name: Checkpoint the compiled library immediately
+        if: steps.torch-cache.outputs.cache-hit != 'true' && steps.torch-compiled-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/libtorch-intel-2.12.0
+          key: ${{ steps.torch-compiled-cache.outputs.cache-primary-key }}
+      - name: Validate architecture, deployment target and native CPU execution
+        if: steps.torch-cache.outputs.cache-hit != 'true'
+        run: bash packaging/ci/validate-libtorch-intel.sh
       - name: Save the reusable native library before building the application
         if: steps.torch-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4

@@ -60,43 +60,13 @@ cmake -S "$work/source" -B "$work/objects" -G Ninja \
 cmake --build "$work/objects" --parallel 2 --target install 2>&1 | tee "$logs/build.log"
 cp "$omp/lib/libomp.dylib" "$prefix/lib/libomp.dylib"
 cp "$work/source/LICENSE" "$prefix/LICENSE"
-for name in libtorch.dylib libtorch_cpu.dylib libc10.dylib libomp.dylib; do
-  library="$prefix/lib/$name"
-  lipo -verify_arch x86_64 "$library"
-  install_name_tool -id "@rpath/$name" "$library"
-  while IFS= read -r dependency; do
-    case "$dependency" in /usr/lib/*|/System/Library/*) continue ;; esac
-    base=${dependency##*/}
-    case "$base" in libtorch.dylib|libtorch_cpu.dylib|libc10.dylib|libomp.dylib) ;;
-      *) echo "Unaccounted runtime dependency: $dependency" >&2; exit 1 ;;
-    esac
-    [[ "$dependency" == "@rpath/$name" ]] && continue
-    install_name_tool -change "$dependency" "@loader_path/$base" "$library"
-  done < <(otool -L "$library" | tail -n +2 | awk '{print $1}')
-  codesign --force --sign - "$library"
-done
-cat > "$work/probe.cpp" <<'CPP'
-#include <torch/torch.h>
-#include <iostream>
-int main() {
-  auto x = torch::ones({2, 3});
-  auto y = torch::matmul(x, x.transpose(0, 1));
-  if (y.sum().item<float>() != 12.0f) return 1;
-  std::cout << "Native Intel LibTorch CPU matrix probe passed\n";
-}
-CPP
-c++ -std=c++20 "$work/probe.cpp" -I"$prefix/include" \
-  -I"$prefix/include/torch/csrc/api/include" -L"$prefix/lib" \
-  -Wl,-rpath,"$prefix/lib" -ltorch -ltorch_cpu -lc10 -o "$work/probe"
-env -u DYLD_LIBRARY_PATH -u PYTHONPATH "$work/probe" | tee "$logs/cpp-probe.log"
 printf '%s\n' 'PyTorch v2.12.0 / 0d62256a2b23365f8e1604297eb23a6545102aa8' \
   'Official source SHA256: 7cc1deb309f402ad67e9f45bbe311a40def4db19d66fddb9b01950f9bfc5ccb1' \
-  'CPU x86_64; macOS14; Release; C++20; Accelerate/vecLib; PocketFFT; OpenMP.' \
+  'CPU x86_64; requested deployment target macOS14; Release; C++20; Accelerate/vecLib; PocketFFT; OpenMP.' \
   'Python is a build tool only. GPU, distributed and quantized acceleration backends disabled.' \
   'The model and application require separate validation; this cache alone is not a supported installer.' > "$prefix/BUILD-PROVENANCE.txt"
-(cd "$prefix" && shasum -a 256 lib/{libtorch,libtorch_cpu,libc10,libomp}.dylib) > "$logs/dylibs.sha256"
-cp "$logs/dylibs.sha256" "$prefix/"
-touch "$prefix/BUILD-COMPLETE"
-# Do not retain duplicate sources/objects beside the subsequent Rust build.
+touch "$prefix/BUILD-COMPILED"
+# Save this prefix in Actions before any post-build validation. Its cache key
+# depends only on this compilation recipe, so a probe fix reuses the build.
 rm -rf "$work"
 df -h "$RUNNER_TEMP"
