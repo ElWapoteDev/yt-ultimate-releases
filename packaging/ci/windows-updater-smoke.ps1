@@ -30,6 +30,14 @@ using Microsoft.Win32.SafeHandles;
 public static class YtuSmokeNativePaths {
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern uint GetFinalPathNameByHandle(SafeFileHandle file, StringBuilder path, uint size, uint flags);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+    public static uint ExitCode(IntPtr process) {
+        uint exitCode;
+        if (!GetExitCodeProcess(process, out exitCode)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        return exitCode;
+    }
     public static string Canonical(string path) {
         using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) {
             var buffer = new StringBuilder(32768);
@@ -103,7 +111,13 @@ public static class YtuSmokeNativePaths {
             foreach ($candidate in $candidates) {
                 try {
                     $process = [Diagnostics.Process]::GetProcessById($candidate.ProcessId)
-                    if (-not $process.HasExited -and $process.MainWindowHandle -ne [IntPtr]::Zero) { $restarted = $process; break }
+                    if (-not $process.HasExited -and $process.MainWindowHandle -ne [IntPtr]::Zero) {
+                        # Retain a native process handle before exit. Unlike
+                        # Start(), GetProcessById() did not create this process.
+                        $null = $process.Handle
+                        $restarted = $process
+                        break
+                    }
                     $process.Dispose()
                 } catch [ArgumentException] { }
             }

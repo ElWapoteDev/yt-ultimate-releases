@@ -200,6 +200,7 @@ try {
         $result.updater_handoff_passed = $true
     }
     $appProcess.Refresh()
+    $finalProcessHandle = $appProcess.Handle
     $result.final_window_handle = $appProcess.MainWindowHandle.ToInt64()
     $result.final_window_title = $appProcess.MainWindowTitle
     if (-not $appProcess.CloseMainWindow()) { throw 'Could not request a normal window close' }
@@ -210,7 +211,9 @@ try {
         $result.responding_after_close = $appProcess.Responding
         throw 'Application did not exit after closing its main window'
     }
-    if ($appProcess.ExitCode -ne 0) { throw "Application closed with exit code $($appProcess.ExitCode)" }
+    $finalExitCode = if ($ExerciseUpdater) { [YtuSmokeNativePaths]::ExitCode($finalProcessHandle) } else { $appProcess.ExitCode }
+    $result.final_exit_code = $finalExitCode
+    if ($null -eq $finalExitCode -or $finalExitCode -ne 0) { throw "Application closed with exit code $finalExitCode" }
     $result.graceful_exit = $true
     if ($LegacyInstaller) {
         Invoke-LegacyFixture 'after'
