@@ -1,0 +1,64 @@
+{
+  "name": "yt-app",
+  "productName": "YT Ultimate",
+  "version": @VERSION@,
+  "identifier": "com.ytultimate.desktop",
+  "publisher": "YT Ultimate",
+  "description": "Biblioteca y herramientas multimedia de YT Ultimate",
+  "category": "Music",
+  "binaries": @BINARIES@,
+  "binariesDir": @BINARIES_DIR@,
+  "outDir": @OUTPUT_DIR@,
+  "targetTriple": @HOST@,
+  "beforeEachPackageCommand": @BEFORE_PACKAGE@,
+  "icons": [@ICNS@, @ICO@, @PNG@],
+  "resources": @RESOURCES@,
+  "fileAssociations": [
+    {
+      "extensions": ["mp3", "m4a", "wav", "flac", "aac", "ogg", "opus"],
+      "name": "YTUltimate.Audio",
+      "description": "Archivo de audio",
+      "role": "viewer"
+    },
+    {
+      "extensions": ["mp4", "webm", "mkv"],
+      "name": "YTUltimate.Video",
+      "description": "Archivo de vídeo",
+      "role": "viewer"
+    },
+    {
+      "extensions": ["m3u", "m3u8"],
+      "name": "YTUltimate.Playlist",
+      "description": "Playlist",
+      "role": "viewer"
+    }
+  ],
+  "macos": {
+    "infoPlistPath": @MACOS_INFO_PLIST@,
+    "minimumSystemVersion": @MINIMUM_MACOS@,
+    "frameworks": @FRAMEWORKS@,
+    "entitlements": @MACOS_ENTITLEMENTS@,
+    "signingIdentity": @APPLE_IDENTITY@
+  },
+  "windows": {
+    "allowDowngrades": false,
+    "digestAlgorithm": "sha256",
+    "certificateThumbprint": @WINDOWS_THUMBPRINT@,
+    "timestampUrl": @WINDOWS_TIMESTAMP@,
+    "tsp": true
+  },
+  "nsis": {
+    "template": @NSIS_TEMPLATE@,
+    "installMode": "currentUser",
+    "installerIcon": @ICO@,
+    "languages": ["Spanish", "English"],
+    "displayLanguageSelector": true,
+    "preinstallSection": @NSIS_PREINSTALL@
+  },
+  "wix": {"languages": ["es-ES", "en-US"]},
+  "dmg": {
+    "windowSize": {"width": 600, "height": 400},
+    "appPosition": {"x": 150, "y": 180},
+    "appFolderPosition": {"x": 450, "y": 180}
+  }
+}

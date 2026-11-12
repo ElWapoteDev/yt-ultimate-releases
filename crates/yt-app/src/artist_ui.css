@@ -1,0 +1,160 @@
+/* Artist and album pages: concerts, biography and online track lists.
+   Included once at the root. */
+
+.artist-popular,
+.album-tracks {
+  margin-bottom: 30px;
+}
+
+.artist-follow--on {
+  color: var(--accent);
+}
+
+.concerts {
+  margin-bottom: 34px;
+}
+
+.concerts-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 18px;
+  padding: 18px 20px;
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in oklab, var(--accent) 14%, transparent), transparent 70%),
+    var(--hover-fill);
+}
+
+.concerts-empty__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+}
+
+.concerts-empty__text {
+  display: flex;
+  flex: 1 1 260px;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.concerts-empty__title {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.concerts-empty__hint {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.concerts-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.concerts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.concert {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 16px;
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--hover-fill);
+  transition: transform 200ms var(--ease-out), box-shadow 200ms var(--ease-out);
+}
+
+.concert:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+}
+
+.concert--near {
+  border-color: color-mix(in oklab, var(--accent) 55%, transparent);
+  background:
+    radial-gradient(120% 120% at 100% 0%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 70%),
+    var(--hover-fill);
+}
+
+.concert__date {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.concert__title {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.concert__place {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.concert__place svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.concert__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.concert__badge {
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--on-accent);
+  background: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.concert__tickets {
+  margin-left: auto;
+}
+
+.artist-about {
+  margin-bottom: 34px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .concert {
+    transition: none;
+  }
+
+  .concert:hover {
+    transform: none;
+  }
+}

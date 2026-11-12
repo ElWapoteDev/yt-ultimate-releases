@@ -1,0 +1,1426 @@
+use sha2::{Digest, Sha256};
+use std::{
+    collections::HashSet,
+    env,
+    error::Error,
+    ffi::OsStr,
+    fs,
+    io::Read,
+    path::{Path, PathBuf},
+    process::{Command, ExitCode},
+};
+mod places;
+mod windows;
+
+type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
+const PACKAGER_VERSION: &str = "0.11.8";
+const XWIN_VERSION: &str = "0.23.1";
+const WINDOWS_TARGET: &str = "x86_64-pc-windows-msvc";
+const METAL_TARGET: &str = "aarch64-apple-darwin";
+const TORCH_LIBRARIES: &[&str] = &[
+    "libtorch.dylib",
+    "libtorch_cpu.dylib",
+    "libc10.dylib",
+    "libomp.dylib",
+];
+
+#[derive(Clone, Copy)]
+struct StemModel {
+    filename: &'static str,
+    sha256: &'static str,
+    name: &'static str,
+}
+
+const TORCH_MODEL: StemModel = StemModel {
+    filename: "bs-roformer-v1.pt",
+    sha256: "31d794ab054bd70964b6165ceca3b94e00f344f8a0b8bc325def47ce9aa14926",
+    name: "BS-RoFormer",
+};
+const METAL_MODEL: StemModel = StemModel {
+    filename: "bs-roformer-viperx-f16.safetensors",
+    sha256: "97307b43fa9a830a80e7d382fab39a746b2a0777ba38cf4d1c7432ef77ad19a2",
+    name: "BS-RoFormer ViperX",
+};
+
+/// The official ONNX Runtime build the DJ's worker loads on Apple Silicon:
+/// API 24 or later, with the CoreML execution provider, macOS 14 or later.
+/// Microsoft publishes no Intel macOS build of 1.26, so Intel packages ship
+/// without the DJ's analysis.
+struct OnnxRuntime {
+    url: &'static str,
+    sha256: &'static str,
+    /// The archive's top folder and the library inside it.
+    folder: &'static str,
+    library: &'static str,
+}
+
+const ONNX_RUNTIME: OnnxRuntime = OnnxRuntime {
+    url: "https://github.com/microsoft/onnxruntime/releases/download/v1.26.0/onnxruntime-osx-arm64-1.26.0.tgz",
+    sha256: "7a1280bbb1701ea514f71828765237e7896e0f2e1cd332f1f70dbd5c3e33aca3",
+    folder: "onnxruntime-osx-arm64-1.26.0",
+    library: "lib/libonnxruntime.1.26.0.dylib",
+};
+/// Names the application looks for (`crates/yt-app/src/bundled.rs` and
+/// `dj_analysis.rs`): the worker beside the executable, the runtime in
+/// `Frameworks` and the models in `Resources/models`.
+const DJ_WORKER: &str = "ytu-worker";
+const ONNX_RUNTIME_LIBRARY: &str = "libonnxruntime.dylib";
+const BEAT_MODEL: &str = "beat-this-final0.onnx";
+const VOCAL_MODEL: &str = "htdemucs-core.onnx";
+/// The AI fusions' generation program (sa3.cpp's `sa3-generate`, built
+/// static) beside the executable, and the folder of its weights, licenses
+/// and notice in `Resources/models`.
+const FUSION_PROGRAM: &str = "sa3-generate";
+const FUSION_MODELS: &str = "stable-audio-3";
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    env::set_current_dir(root)?;
+    let mut args = env::args().skip(1);
+    let task = args.next().unwrap_or_else(|| "help".into());
+    if task == "sign-local-macos" {
+        let app = PathBuf::from(args.next().ok_or("Expected a generated app bundle")?);
+        if args.next().is_some() {
+            return Err("Invalid local signing options".into());
+        }
+        if env::var("CARGO_PACKAGER_FORMAT").is_ok_and(|format| format != "dmg") {
+            return Ok(());
+        }
+        if !app
+            .canonicalize()?
+            .starts_with(root.join("target/packages").canonicalize()?)
+        {
+            return Err("Local signing is restricted to generated project packages".into());
+        }
+        return sign_local_macos(&app);
+    }
+    if task == "help" || task == "--help" {
+        println!("cargo run -p xtask -- check\ncargo run -p xtask -- places\ncargo run -p xtask -- prepare [--signed] [--target {WINDOWS_TARGET}]\ncargo run -p xtask -- package [--signed] [--formats app,dmg|nsis,wix] [--target {WINDOWS_TARGET}]\ncargo run -p xtask -- verify [--signed] [--formats app,dmg|nsis,wix] [--target {WINDOWS_TARGET}]\n\nPackages the native host, or cross-compiles Windows NSIS from macOS with cargo-xwin {XWIN_VERSION}. Output: target/packages/<target>/<version>/\nInstall cargo-packager {PACKAGER_VERSION} first, or set CARGO_PACKAGER to its path.");
+        println!("Add --native-stems on macOS or Windows x64 to bundle the model and LibTorch (LIBTORCH is required; Windows also needs YTU_VC_RUNTIME_DIR); output goes into the full/ subdirectory.");
+        println!("Use --metal-stems on Apple Silicon for GPU inference; output goes into the full-metal/ subdirectory.");
+        println!("Apple Silicon packages include the DJ's worker, ONNX Runtime and beat model; set YTU_PACKAGE_VOCAL_MODEL to an htdemucs-core.onnx to include the vocal model too, and YTU_PACKAGE_FUSION to a fusion kit (sa3-generate, models/, licenses/) to include the AI fusions.");
+        return Ok(());
+    }
+    if task == "check" {
+        if args.next().is_some() {
+            return Err("check does not accept arguments".into());
+        }
+        for arguments in [
+            vec!["fmt", "--all", "--", "--check"],
+            vec!["test", "--workspace", "--locked"],
+            vec![
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--locked",
+                "--",
+                "-D",
+                "warnings",
+            ],
+        ] {
+            command("cargo", arguments)?;
+        }
+        return Ok(());
+    }
+    if task == "places" {
+        if args.next().is_some() {
+            return Err("places does not accept arguments".into());
+        }
+        return places::generate(root);
+    }
+    if task != "package" && task != "prepare" && task != "verify" {
+        return Err(format!("Unknown task: {task}").into());
+    }
+    let host = rust_host()?;
+    let mut target = host.clone();
+    let mut signed = false;
+    let mut native_stems = false;
+    let mut metal_stems = false;
+    let mut requested_formats = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--signed" => signed = true,
+            "--native-stems" => native_stems = true,
+            "--metal-stems" => metal_stems = true,
+            "--formats" => {
+                requested_formats = Some(
+                    args.next()
+                        .ok_or("--formats needs a comma-separated list")?,
+                );
+            }
+            "--target" => target = args.next().ok_or("--target needs a target triple")?,
+            _ => return Err(format!("Unknown option: {arg}").into()),
+        }
+    }
+    if metal_stems && native_stems {
+        return Err("Choose either --metal-stems or --native-stems".into());
+    }
+    if metal_stems && (host != METAL_TARGET || target != METAL_TARGET) {
+        return Err("--metal-stems requires a native Apple Silicon macOS host and target".into());
+    }
+    let cross_windows =
+        target != host && host.ends_with("apple-darwin") && target == WINDOWS_TARGET;
+    if target != host && !cross_windows {
+        return Err("Only macOS to Windows x64 cross-packaging is supported".into());
+    }
+    if cross_windows && signed {
+        return Err("Sign Windows installers on a Windows host; cross-packaging produces unsigned NSIS only".into());
+    }
+    let mac_torch_stems = native_stems && target.ends_with("apple-darwin");
+    let mac_stems = mac_torch_stems || metal_stems;
+    let mac_dj = target == METAL_TARGET;
+    // Unsigned macOS packages get an ad-hoc signature that covers their
+    // nested worker and libraries; Developer ID builds use the packager's.
+    let local_signing = target.ends_with("apple-darwin") && !signed;
+    let mac_libraries = if mac_torch_stems {
+        TORCH_LIBRARIES
+    } else {
+        &[]
+    };
+    let stem_model = if metal_stems {
+        Some(METAL_MODEL)
+    } else if native_stems {
+        Some(TORCH_MODEL)
+    } else {
+        None
+    };
+    let minimum_macos = if stem_model.is_some() { "14.0" } else { "12.0" };
+    let allowed: &[&str] = if target.ends_with("apple-darwin") {
+        &["app", "dmg"]
+    } else if cross_windows || native_stems && target == WINDOWS_TARGET {
+        &["nsis"]
+    } else if target == WINDOWS_TARGET {
+        &["nsis", "wix"]
+    } else {
+        return Err(format!(
+            "No installer configuration for {target}; use macOS or Windows x64 MSVC"
+        )
+        .into());
+    };
+    let formats = requested_formats.unwrap_or_else(|| allowed.join(","));
+    if formats.is_empty() || formats.split(',').any(|format| !allowed.contains(&format)) {
+        return Err(format!("Valid formats for {target}: {}", allowed.join(",")).into());
+    }
+    let build_dmg = formats.split(',').any(|format| format == "dmg");
+    // The signing hook runs after app creation and before DMG assembly.
+    let package_formats = if (mac_stems || local_signing) && build_dmg {
+        "app,dmg"
+    } else {
+        &formats
+    };
+    let verify_formats = if metal_stems {
+        package_formats
+    } else {
+        &formats
+    };
+    if signed {
+        check_signing(&host)?;
+    }
+    let target_dir = root.join("target");
+    // Keep the Metal executable separate from ordinary native release builds.
+    let explicit_target = cross_windows || metal_stems;
+    let build_binaries_dir = if explicit_target {
+        target_dir.join(&target).join("release")
+    } else {
+        target_dir.join("release")
+    };
+    let mut out_dir = target_dir
+        .join("packages")
+        .join(&target)
+        .join(env!("CARGO_PKG_VERSION"));
+    let variant = if metal_stems {
+        "full-metal"
+    } else if native_stems {
+        "full"
+    } else {
+        ""
+    };
+    if !variant.is_empty() {
+        out_dir.push(variant);
+    }
+    if task == "verify" {
+        verify_outputs(&out_dir, verify_formats, signed, metal_stems)?;
+        if let Some(model) = stem_model.filter(|_| mac_stems) {
+            verify_macos_stems_resources(&out_dir, model, mac_libraries)?;
+        }
+        println!("Package verification passed: {}", out_dir.display());
+        return Ok(());
+    }
+    fs::create_dir_all(&out_dir)?;
+    let generated = target_dir.join("packaging");
+    fs::create_dir_all(&generated)?;
+    let stage_dir = generated.join(&target).join("full");
+    let binaries_dir = if mac_torch_stems {
+        stage_dir.join("bin")
+    } else {
+        build_binaries_dir.clone()
+    };
+    let mut resources = Vec::new();
+    if let Some(model) = stem_model {
+        let path = package_model(root, model)?;
+        resources.push(format!(
+            "{{\"src\":{},\"target\":{}}}",
+            json(&path.to_string_lossy()),
+            json(&format!("models/{}", model.filename)),
+        ));
+    }
+    resources.push(format!(
+        "{{\"src\":{},\"target\":\"licenses\"}}",
+        json(&root.join("packaging/licenses").to_string_lossy()),
+    ));
+    if metal_stems {
+        let upstream = root.join("vendor/candle-roformer-metal");
+        for (source, destination) in [
+            ("LICENSE", "licenses/candle-roformer-LICENSE-MIT.txt"),
+            ("NOTICE", "licenses/candle-roformer-NOTICE.txt"),
+        ] {
+            resources.push(format!(
+                "{{\"src\":{},\"target\":{}}}",
+                json(&upstream.join(source).to_string_lossy()),
+                json(destination),
+            ));
+        }
+    }
+    if native_stems && target == WINDOWS_TARGET {
+        for path in windows::native_files()? {
+            resources.push(format!(
+                "{{\"src\":{},\"target\":{}}}",
+                json(&path.to_string_lossy()),
+                json(
+                    &path
+                        .file_name()
+                        .ok_or("Missing DLL name")?
+                        .to_string_lossy()
+                )
+            ));
+        }
+    }
+    let mut frameworks: Vec<PathBuf> = mac_libraries
+        .iter()
+        .map(|name| stage_dir.join("Frameworks").join(name))
+        .collect();
+    let mut binaries = vec![r#"{"path":"yt-ultimate","main":true}"#.to_owned()];
+    if mac_dj {
+        let runtime = stage_onnx_runtime(&generated)?;
+        frameworks.push(runtime.join(ONNX_RUNTIME_LIBRARY));
+        let mut dj_resources = vec![
+            (
+                runtime.join("LICENSE"),
+                "licenses/onnxruntime-LICENSE.txt".to_owned(),
+            ),
+            (
+                runtime.join("ThirdPartyNotices.txt"),
+                "licenses/onnxruntime-ThirdPartyNotices.txt".to_owned(),
+            ),
+            (
+                root.join("crates/yt-mir/models").join(BEAT_MODEL),
+                format!("models/{BEAT_MODEL}"),
+            ),
+        ];
+        // The vocal model's weights await the owner's license review
+        // (docs/AI_DJ.md §7.4), so only a build that asks for it carries it.
+        if let Some(path) = env::var_os("YTU_PACKAGE_VOCAL_MODEL") {
+            dj_resources.push((PathBuf::from(path), format!("models/{VOCAL_MODEL}")));
+        }
+        // The AI fusions' model weighs about 5 GB and its license asks for
+        // attribution, so only a build that asks for it carries it.
+        if let Some(kit) = fusion_kit()? {
+            for entry in fs::read_dir(kit.join("licenses"))? {
+                let path = entry?.path();
+                let name = path.file_name().ok_or("Missing license name")?;
+                dj_resources.push((path.clone(), format!("licenses/{}", name.to_string_lossy())));
+            }
+            resources.push(format!(
+                "{{\"src\":{},\"target\":{}}}",
+                json(&kit.join("models").to_string_lossy()),
+                json(&format!("models/{FUSION_MODELS}")),
+            ));
+            binaries.push(format!("{{\"path\":{}}}", json(FUSION_PROGRAM)));
+        }
+        for (path, destination) in dj_resources {
+            if !path.is_file() {
+                return Err(format!("Missing DJ file: {}", path.display()).into());
+            }
+            resources.push(format!(
+                "{{\"src\":{},\"target\":{}}}",
+                json(&path.canonicalize()?.to_string_lossy()),
+                json(&destination),
+            ));
+        }
+        binaries.push(format!("{{\"path\":{}}}", json(DJ_WORKER)));
+    }
+    let frameworks = format!(
+        "[{}]",
+        frameworks
+            .iter()
+            .map(|path| json(&path.to_string_lossy()))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    let binaries = format!("[{}]", binaries.join(","));
+    let resources = format!("[{}]", resources.join(","));
+    let template = fs::read_to_string(root.join("packaging/packager.json.in"))?;
+    let before_package = if local_signing {
+        let shell_quote = |value: &str| format!("'{}'", value.replace('\'', "'\\''"));
+        json(&format!(
+            "{} sign-local-macos {}",
+            shell_quote(&env::current_exe()?.to_string_lossy()),
+            shell_quote(&out_dir.join("YT Ultimate.app").to_string_lossy()),
+        ))
+    } else {
+        "null".into()
+    };
+    let preinstall = if target == WINDOWS_TARGET && formats.split(',').any(|f| f == "nsis") {
+        let bootstrapper = windows::webview2_bootstrapper(root)?;
+        // Escape literal NSIS source text; no user path is executed by a shell.
+        let path = bootstrapper
+            .to_string_lossy()
+            .replace('$', "$$")
+            .replace('"', "$\\\"");
+        let runtime = fs::read_to_string(root.join("packaging/windows-webview2.nsh"))?
+            .replace("@WEBVIEW2_BOOTSTRAPPER@", &path);
+        let upgrade = fs::read_to_string(root.join("packaging/windows-legacy-upgrade.nsh"))?;
+        format!("{runtime}\n{upgrade}")
+    } else {
+        String::new()
+    };
+    let config = template
+        .replace("@VERSION@", &json(env!("CARGO_PKG_VERSION")))
+        .replace("@BINARIES@", &binaries)
+        .replace("@BINARIES_DIR@", &json(&binaries_dir.to_string_lossy()))
+        .replace("@OUTPUT_DIR@", &json(&out_dir.to_string_lossy()))
+        .replace("@HOST@", &json(&target))
+        .replace("@BEFORE_PACKAGE@", &before_package)
+        .replace(
+            "@NSIS_TEMPLATE@",
+            &json(
+                &root
+                    .join("packaging/windows-installer.nsi")
+                    .to_string_lossy(),
+            ),
+        )
+        .replace("@RESOURCES@", &resources)
+        .replace("@FRAMEWORKS@", &frameworks)
+        .replace(
+            "@MACOS_INFO_PLIST@",
+            &json(&root.join("packaging/macos/Info.plist").to_string_lossy()),
+        )
+        // Developer ID signatures use the hardened runtime, which reaches
+        // Location Services only through this entitlement.
+        .replace(
+            "@MACOS_ENTITLEMENTS@",
+            &json(
+                &root
+                    .join("packaging/macos/entitlements.plist")
+                    .to_string_lossy(),
+            ),
+        )
+        .replace("@MINIMUM_MACOS@", &json(minimum_macos))
+        .replace(
+            "@ICNS@",
+            &json(
+                &root
+                    .join("packaging/icons/yt-ultimate-liquid-glass.icns")
+                    .to_string_lossy(),
+            ),
+        )
+        .replace(
+            "@ICO@",
+            &json(&root.join("packaging/icons/icon.ico").to_string_lossy()),
+        )
+        .replace(
+            "@PNG@",
+            &json(&root.join("packaging/icons/icon.png").to_string_lossy()),
+        )
+        .replace("@NSIS_PREINSTALL@", &json(&preinstall))
+        .replace(
+            "@APPLE_IDENTITY@",
+            &optional_json(if signed {
+                env::var("APPLE_SIGNING_IDENTITY").ok()
+            } else {
+                None
+            }),
+        )
+        .replace(
+            "@WINDOWS_THUMBPRINT@",
+            &optional_json(
+                signed
+                    .then(|| env::var("WINDOWS_CERTIFICATE_THUMBPRINT").ok())
+                    .flatten(),
+            ),
+        )
+        .replace(
+            "@WINDOWS_TIMESTAMP@",
+            &optional_json(
+                signed
+                    .then(|| env::var("WINDOWS_TIMESTAMP_URL").ok())
+                    .flatten(),
+            ),
+        );
+    let config_path = generated.join(if variant.is_empty() {
+        format!("packager-{target}.json")
+    } else {
+        format!("packager-{target}-{variant}.json")
+    });
+    fs::write(&config_path, config)?;
+    println!("Packaging configuration: {}", config_path.display());
+    if task == "prepare" {
+        return Ok(());
+    }
+
+    let local_tool = target_dir
+        .join("packager-tools/bin")
+        .join(if cfg!(windows) {
+            "cargo-packager.exe"
+        } else {
+            "cargo-packager"
+        });
+    let packager = env::var_os("CARGO_PACKAGER")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            if local_tool.is_file() {
+                local_tool
+            } else {
+                PathBuf::from("cargo-packager")
+            }
+        });
+    let version = Command::new(&packager).arg("--version").output()
+        .map_err(|_| format!("Install the packager with: cargo install cargo-packager --version {PACKAGER_VERSION} --locked --root target/packager-tools"))?;
+    if !version.status.success()
+        || String::from_utf8_lossy(&version.stdout)
+            .split_whitespace()
+            .last()
+            != Some(PACKAGER_VERSION)
+    {
+        return Err(format!("Expected cargo-packager {PACKAGER_VERSION}").into());
+    }
+    let mut build = if cross_windows {
+        let xwin = env::var_os("CARGO_XWIN")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                let local = target_dir.join("packager-tools/bin/cargo-xwin");
+                if local.is_file() {
+                    local
+                } else {
+                    PathBuf::from("cargo-xwin")
+                }
+            });
+        let version = Command::new(&xwin).arg("--version").output()?;
+        if !version.status.success()
+            || String::from_utf8_lossy(&version.stdout)
+                .split_whitespace()
+                .last()
+                != Some(XWIN_VERSION)
+        {
+            return Err(format!("Expected cargo-xwin {XWIN_VERSION}; install it with cargo install --locked cargo-xwin --version {XWIN_VERSION} --root target/packager-tools").into());
+        }
+        for tool in [
+            "clang-cl", "lld-link", "llvm-rc", "cmake", "ninja", "makensis",
+        ] {
+            let option = if tool == "makensis" {
+                "-VERSION"
+            } else {
+                "--version"
+            };
+            // llvm-rc has no --version but a nonzero exit still proves it can be started.
+            Command::new(tool)
+                .arg(option)
+                .output()
+                .map_err(|_| format!("Missing {tool} in PATH; see docs/RUST_PACKAGING.md"))?;
+        }
+        Command::new(xwin)
+    } else {
+        Command::new("cargo")
+    };
+    build
+        .args([
+            "build",
+            "--locked",
+            "--release",
+            "-p",
+            "yt-app",
+            "--bin",
+            "yt-ultimate",
+            "--target-dir",
+        ])
+        .arg(&target_dir);
+    if explicit_target {
+        build.args(["--target", &target]);
+    }
+    if native_stems {
+        let libtorch = env::var_os("LIBTORCH")
+            .ok_or("Set LIBTORCH to the matching native LibTorch 2.12 distribution")?;
+        build
+            .args(["--features", "native-stems"])
+            .env("LIBTORCH", libtorch);
+    }
+    if metal_stems {
+        build.args(["--features", "metal-stems"]);
+    }
+    if target == WINDOWS_TARGET {
+        // The base edition embeds CRT. LibTorch's shared C++ ABI uses the
+        // matching dynamic CRT, whose DLLs are included beside the executable.
+        let previous = env::var("RUSTFLAGS").unwrap_or_default();
+        build.env(
+            "RUSTFLAGS",
+            format!(
+                "{previous} -C target-feature={}crt-static",
+                if native_stems { "-" } else { "+" }
+            ),
+        );
+        build.env_remove("CARGO_ENCODED_RUSTFLAGS");
+    } else if target.ends_with("apple-darwin") {
+        build.env("MACOSX_DEPLOYMENT_TARGET", minimum_macos);
+    }
+    success(&mut build)?;
+    let executable = build_binaries_dir.join(if target == WINDOWS_TARGET {
+        "yt-ultimate.exe"
+    } else {
+        "yt-ultimate"
+    });
+    if !executable.is_file() {
+        return Err(format!("Missing built executable: {}", executable.display()).into());
+    }
+    if target == WINDOWS_TARGET {
+        verify_windows_executable(&executable)?;
+        if native_stems {
+            windows::verify_dependencies(&executable, &windows::native_files()?)?;
+        }
+    }
+    if mac_torch_stems {
+        stage_native_stems(&executable, &stage_dir)?;
+    }
+    if mac_dj {
+        let mut worker = Command::new("cargo");
+        worker
+            .args([
+                "build",
+                "--locked",
+                "--release",
+                "-p",
+                "yt-worker",
+                "--bin",
+                DJ_WORKER,
+                "--target-dir",
+            ])
+            .arg(&target_dir)
+            .env("MACOSX_DEPLOYMENT_TARGET", minimum_macos);
+        if explicit_target {
+            worker.args(["--target", &target]);
+        }
+        success(&mut worker)?;
+        if binaries_dir != build_binaries_dir {
+            fs::copy(
+                build_binaries_dir.join(DJ_WORKER),
+                binaries_dir.join(DJ_WORKER),
+            )?;
+        }
+        if let Some(kit) = fusion_kit()? {
+            fs::copy(kit.join(FUSION_PROGRAM), binaries_dir.join(FUSION_PROGRAM))?;
+        }
+    }
+    let mut package = Command::new(packager);
+    package
+        .arg("--config")
+        .arg(config_path)
+        .args(["--formats", package_formats]);
+    // CI exposes optional secrets as empty strings; the packager treats even
+    // an empty APPLE_KEYCHAIN_PROFILE as an explicitly selected credential.
+    for setting in [
+        "APPLE_KEYCHAIN_PROFILE",
+        "APPLE_ID",
+        "APPLE_PASSWORD",
+        "APPLE_TEAM_ID",
+        "APPLE_API_KEY",
+        "APPLE_API_ISSUER",
+        "APPLE_API_KEY_PATH",
+        "APPLE_CERTIFICATE",
+        "APPLE_CERTIFICATE_PASSWORD",
+    ] {
+        if !signed || !nonempty(setting) {
+            package.env_remove(setting);
+        }
+    }
+    success(&mut package)?;
+    if local_signing && !build_dmg {
+        sign_local_macos(&out_dir.join("YT Ultimate.app"))?;
+    }
+    if mac_stems && build_dmg {
+        let arch = if target.starts_with("aarch64-") {
+            "aarch64"
+        } else {
+            "x64"
+        };
+        let name = format!("YT Ultimate_{}_{}", env!("CARGO_PKG_VERSION"), arch);
+        fs::rename(
+            out_dir.join(format!("{name}.dmg")),
+            out_dir.join(format!("{name}_{variant}.dmg")),
+        )?;
+    }
+    if native_stems && target == WINDOWS_TARGET {
+        let prefix = format!("yt-ultimate_{}_x64", env!("CARGO_PKG_VERSION"));
+        if formats.split(',').any(|format| format == "nsis") {
+            fs::rename(
+                out_dir.join(format!("{prefix}-setup.exe")),
+                out_dir.join(format!("{prefix}_full-setup.exe")),
+            )?;
+        }
+        if formats.split(',').any(|format| format == "wix") {
+            return Err("Full Windows MSI naming and runtime deployment must be configured before using WiX; use --formats nsis".into());
+        }
+    }
+    verify_outputs(&out_dir, verify_formats, signed, metal_stems)?;
+    if let Some(model) = stem_model.filter(|_| mac_stems) {
+        verify_macos_stems_resources(&out_dir, model, mac_libraries)?;
+    }
+    write_checksums(&out_dir, &formats)?;
+    println!("Installers created: {}", out_dir.display());
+    if !signed {
+        println!("These are local unsigned builds; signing/notarization has not been performed.");
+    }
+    Ok(())
+}
+
+/// Sign `app` ad hoc: its libraries and helper programs first, then the
+/// bundle, which seals them.
+fn sign_local_macos(app: &Path) -> Result {
+    let mut nested = Vec::new();
+    for folder in ["Contents/Frameworks", "Contents/MacOS"] {
+        let folder = app.join(folder);
+        if folder.is_dir() {
+            for entry in fs::read_dir(folder)? {
+                let path = entry?.path();
+                if path.is_file() && path.file_name() != Some(OsStr::new("yt-ultimate")) {
+                    nested.push(path);
+                }
+            }
+        }
+    }
+    nested.sort();
+    for path in nested {
+        command(
+            "codesign",
+            [
+                OsStr::new("--force"),
+                OsStr::new("--sign"),
+                OsStr::new("-"),
+                OsStr::new("--options"),
+                OsStr::new("0"),
+                OsStr::new("--timestamp=none"),
+                path.as_os_str(),
+            ],
+        )?;
+    }
+    // Ad-hoc identities have no Apple Team ID. Hardened library validation
+    // therefore cannot authorize their dylibs. Developer ID builds use the
+    // packager's hardened signature instead; local builds use plain ad-hoc.
+    command(
+        "codesign",
+        [
+            OsStr::new("--force"),
+            OsStr::new("--sign"),
+            OsStr::new("-"),
+            OsStr::new("--options"),
+            OsStr::new("0"),
+            OsStr::new("--timestamp=none"),
+            app.as_os_str(),
+        ],
+    )?;
+    command(
+        "codesign",
+        [
+            OsStr::new("--verify"),
+            OsStr::new("--deep"),
+            OsStr::new("--strict"),
+            app.as_os_str(),
+        ],
+    )?;
+    Ok(())
+}
+
+fn write_checksums(directory: &Path, formats: &str) -> Result {
+    let extensions: Vec<_> = formats
+        .split(',')
+        .filter(|format| *format != "app")
+        .map(|format| match format {
+            "nsis" => "exe",
+            "wix" => "msi",
+            other => other,
+        })
+        .collect();
+    let mut files = fs::read_dir(directory)?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    files.sort();
+    let mut manifest = String::new();
+    for path in files {
+        if !path.is_file()
+            || !path
+                .extension()
+                .and_then(OsStr::to_str)
+                .is_some_and(|ext| extensions.contains(&ext))
+        {
+            continue;
+        }
+        let hash = file_sha256(&path)?;
+        manifest.push_str(&format!(
+            "{hash}  {}\n",
+            path.file_name()
+                .ok_or("Missing installer name")?
+                .to_string_lossy()
+        ));
+    }
+    if !manifest.is_empty() {
+        fs::write(directory.join("SHA256SUMS"), manifest)?;
+    }
+    Ok(())
+}
+
+fn package_model(root: &Path, model: StemModel) -> Result<PathBuf> {
+    let path = env::var_os("YTU_PACKAGE_STEMS_MODEL")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("crates/yt-media/models").join(model.filename));
+    verify_model(&path, model)?;
+    Ok(path.canonicalize()?)
+}
+
+fn verify_model(path: &Path, model: StemModel) -> Result {
+    if !path.is_file() || file_sha256(path)? != model.sha256 {
+        return Err(format!(
+            "Missing or unexpected {} model: {}",
+            model.name,
+            path.display()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// The fusion kit `YTU_PACKAGE_FUSION` names, when set: a folder with the
+/// static `sa3-generate`, `models/` (the weights, their licenses and notice)
+/// and `licenses/` (the program's). Fails when it is incomplete.
+fn fusion_kit() -> Result<Option<PathBuf>> {
+    let Some(kit) = env::var_os("YTU_PACKAGE_FUSION").map(PathBuf::from) else {
+        return Ok(None);
+    };
+    let complete = kit.join(FUSION_PROGRAM).is_file()
+        && kit.join("models/NOTICE.txt").is_file()
+        && kit.join("licenses").is_dir();
+    if !complete {
+        return Err(format!("Incomplete fusion kit: {}", kit.display()).into());
+    }
+    Ok(Some(kit.canonicalize()?))
+}
+
+/// Download the pinned ONNX Runtime archive once into `generated/downloads`,
+/// check its SHA-256, and extract its library (named as the application looks
+/// for it) and license files into a fresh folder, which it returns.
+fn stage_onnx_runtime(generated: &Path) -> Result<PathBuf> {
+    let downloads = generated.join("downloads");
+    fs::create_dir_all(&downloads)?;
+    let archive = downloads.join(format!("{}.tgz", ONNX_RUNTIME.folder));
+    if !archive.is_file() || file_sha256(&archive)? != ONNX_RUNTIME.sha256 {
+        let partial = archive.with_extension("download");
+        download(ONNX_RUNTIME.url, &partial)?;
+        if file_sha256(&partial)? != ONNX_RUNTIME.sha256 {
+            fs::remove_file(&partial)?;
+            return Err(
+                format!("Unexpected ONNX Runtime archive from {}", ONNX_RUNTIME.url).into(),
+            );
+        }
+        fs::rename(&partial, &archive)?;
+    }
+    let stage = generated.join(ONNX_RUNTIME.folder);
+    if stage.exists() {
+        fs::remove_dir_all(&stage)?;
+    }
+    fs::create_dir_all(&stage)?;
+    let members = [ONNX_RUNTIME.library, "LICENSE", "ThirdPartyNotices.txt"]
+        .map(|member| format!("{}/{member}", ONNX_RUNTIME.folder));
+    let mut extract = Command::new("tar");
+    extract
+        .arg("-xzf")
+        .arg(&archive)
+        .arg("-C")
+        .arg(&stage)
+        .args(&members);
+    success(&mut extract)?;
+    let extracted = stage.join(ONNX_RUNTIME.folder);
+    fs::rename(
+        extracted.join(ONNX_RUNTIME.library),
+        stage.join(ONNX_RUNTIME_LIBRARY),
+    )?;
+    for file in ["LICENSE", "ThirdPartyNotices.txt"] {
+        fs::rename(extracted.join(file), stage.join(file))?;
+    }
+    fs::remove_dir_all(extracted)?;
+    Ok(stage.canonicalize()?)
+}
+
+// A Rust process started by pwsh inherits PowerShell 7's module directories.
+// Windows PowerShell 5 cannot load those assemblies; let it build its own path.
+fn powershell() -> Command {
+    let mut command = Command::new("powershell");
+    command.env_remove("PSModulePath");
+    command
+}
+
+/// Download `url` over HTTPS into `destination`, replacing it; fails when the
+/// server does not answer with success.
+fn download(url: &str, destination: &Path) -> Result {
+    let status = if cfg!(windows) {
+        powershell().args([
+            "-NoProfile", "-NonInteractive", "-Command",
+            "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:YTU_DOWNLOAD_URL -OutFile $env:YTU_DOWNLOAD_PATH"
+        ]).env("YTU_DOWNLOAD_URL", url).env("YTU_DOWNLOAD_PATH", destination).status()?
+    } else {
+        Command::new("curl")
+            .args([
+                "--fail",
+                "--location",
+                "--proto",
+                "=https",
+                "--tlsv1.2",
+                "--retry",
+                "2",
+                "--output",
+            ])
+            .arg(destination)
+            .arg(url)
+            .status()?
+    };
+    if !status.success() {
+        return Err(format!("Could not download {url}").into());
+    }
+    Ok(())
+}
+
+fn file_sha256(path: &Path) -> Result<String> {
+    let mut file = fs::File::open(path)?;
+    let mut hash = Sha256::new();
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let length = file.read(&mut buffer)?;
+        if length == 0 {
+            break;
+        }
+        hash.update(&buffer[..length]);
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+
+fn stage_native_stems(executable: &Path, stage: &Path) -> Result {
+    let libtorch = PathBuf::from(env::var_os("LIBTORCH").ok_or("LIBTORCH is required")?);
+    let frameworks = stage.join("Frameworks");
+    let binaries = stage.join("bin");
+    fs::create_dir_all(&frameworks)?;
+    fs::create_dir_all(&binaries)?;
+    for name in TORCH_LIBRARIES {
+        let target = frameworks.join(name);
+        fs::copy(libtorch.join("lib").join(name), &target)?;
+        command(
+            "install_name_tool",
+            [
+                OsStr::new("-id"),
+                OsStr::new(&format!("@rpath/{name}")),
+                target.as_os_str(),
+            ],
+        )?;
+        relocate_macos_dependencies(&target, false)?;
+    }
+    let binary = binaries.join("yt-ultimate");
+    fs::copy(executable, &binary)?;
+    relocate_macos_dependencies(&binary, true)?;
+    command(
+        "install_name_tool",
+        [
+            OsStr::new("-add_rpath"),
+            OsStr::new("@executable_path/../Frameworks"),
+            binary.as_os_str(),
+        ],
+    )?;
+    Ok(())
+}
+
+fn relocate_macos_dependencies(path: &Path, executable: bool) -> Result {
+    let output = Command::new("otool").arg("-L").arg(path).output()?;
+    if !output.status.success() {
+        return Err("Could not inspect native LibTorch dependencies".into());
+    }
+    for dependency in String::from_utf8(output.stdout)?
+        .lines()
+        .skip(if executable { 1 } else { 2 })
+    {
+        let dependency = dependency.trim().split(" (").next().unwrap_or("");
+        if dependency.starts_with("/System/Library/") || dependency.starts_with("/usr/lib/") {
+            continue;
+        }
+        let name = Path::new(dependency)
+            .file_name()
+            .and_then(OsStr::to_str)
+            .ok_or("Invalid dependency path")?;
+        if !TORCH_LIBRARIES.contains(&name) {
+            return Err(format!("Unexpected native dependency: {dependency}").into());
+        }
+        let new = format!(
+            "{}/{name}",
+            if executable {
+                "@executable_path/../Frameworks"
+            } else {
+                "@loader_path"
+            }
+        );
+        command(
+            "install_name_tool",
+            [
+                OsStr::new("-change"),
+                OsStr::new(dependency),
+                OsStr::new(&new),
+                path.as_os_str(),
+            ],
+        )?;
+    }
+    let output = Command::new("otool").arg("-l").arg(path).output()?;
+    if !output.status.success() {
+        return Err("Could not inspect native library rpaths".into());
+    }
+    let mut rpath = false;
+    for line in String::from_utf8(output.stdout)?.lines() {
+        let line = line.trim();
+        if line == "cmd LC_RPATH" {
+            rpath = true;
+        } else if rpath {
+            if let Some(value) = line.strip_prefix("path ") {
+                let value = value.split(" (offset ").next().unwrap_or(value);
+                command(
+                    "install_name_tool",
+                    [
+                        OsStr::new("-delete_rpath"),
+                        OsStr::new(value),
+                        path.as_os_str(),
+                    ],
+                )?;
+                rpath = false;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn verify_macos_stems_resources(output: &Path, model: StemModel, libraries: &[&str]) -> Result {
+    let app = output.join("YT Ultimate.app");
+    verify_model(
+        &app.join("Contents/Resources/models").join(model.filename),
+        model,
+    )?;
+    for name in libraries {
+        if !app.join("Contents/Frameworks").join(name).is_file() {
+            return Err(format!("Missing native inference library: {name}").into());
+        }
+    }
+    command(
+        "codesign",
+        [
+            OsStr::new("--verify"),
+            OsStr::new("--deep"),
+            OsStr::new("--strict"),
+            app.as_os_str(),
+        ],
+    )?;
+    Ok(())
+}
+
+fn check_signing(host: &str) -> Result {
+    let required: &[&str] = if host.ends_with("apple-darwin") {
+        let has_notarization_credentials = nonempty("APPLE_KEYCHAIN_PROFILE")
+            || (nonempty("APPLE_ID") && nonempty("APPLE_PASSWORD") && nonempty("APPLE_TEAM_ID"))
+            || (nonempty("APPLE_API_KEY")
+                && nonempty("APPLE_API_ISSUER")
+                && nonempty("APPLE_API_KEY_PATH"));
+        if !has_notarization_credentials {
+            return Err("Signed macOS packages require notarization credentials; see docs/RUST_PACKAGING.md".into());
+        }
+        &["APPLE_SIGNING_IDENTITY"]
+    } else {
+        &["WINDOWS_CERTIFICATE_THUMBPRINT", "WINDOWS_TIMESTAMP_URL"]
+    };
+    for variable in required {
+        if !nonempty(variable) {
+            return Err(format!("Missing signing setting: {variable}").into());
+        }
+    }
+    if host.ends_with("apple-darwin") && env::var("APPLE_SIGNING_IDENTITY").as_deref() == Ok("-") {
+        return Err("--signed requires a Developer ID identity, not an ad-hoc signature".into());
+    }
+    Ok(())
+}
+
+fn nonempty(name: &str) -> bool {
+    env::var(name)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn rust_host() -> Result<String> {
+    let result = Command::new("rustc").arg("-vV").output()?;
+    if !result.status.success() {
+        return Err("rustc -vV failed".into());
+    }
+    String::from_utf8(result.stdout)?
+        .lines()
+        .find_map(|line| line.strip_prefix("host: ").map(str::to_owned))
+        .ok_or_else(|| "Could not identify Rust host".into())
+}
+
+fn command<I, S>(program: &str, args: I) -> Result
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    success(Command::new(program).args(args))
+}
+
+fn success(command: &mut Command) -> Result {
+    let status = command.status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} failed with {status}",
+            command.get_program().to_string_lossy()
+        )
+        .into())
+    }
+}
+
+fn verify_outputs(directory: &Path, formats: &str, signed: bool, metal_stems: bool) -> Result {
+    let files = fs::read_dir(directory)?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    for format in formats.split(',') {
+        let extension = match format {
+            "wix" => "msi",
+            "nsis" => "exe",
+            other => other,
+        };
+        let matches: Vec<_> = files
+            .iter()
+            .filter(|path| path.extension() == Some(OsStr::new(extension)))
+            .collect();
+        if matches.is_empty() {
+            return Err(format!("Packaging succeeded without producing .{extension}").into());
+        }
+        for path in matches {
+            if extension == "app" {
+                if !path.join("Contents/MacOS/yt-ultimate").is_file() {
+                    return Err("The .app is missing its Rust executable".into());
+                }
+                command(
+                    "plutil",
+                    [
+                        OsStr::new("-lint"),
+                        path.join("Contents/Info.plist").as_os_str(),
+                    ],
+                )?;
+                // Without a usage description macOS ignores location
+                // requests without telling the application.
+                command(
+                    "plutil",
+                    [
+                        OsStr::new("-extract"),
+                        OsStr::new("NSLocationUsageDescription"),
+                        OsStr::new("raw"),
+                        OsStr::new("-o"),
+                        OsStr::new("/dev/null"),
+                        path.join("Contents/Info.plist").as_os_str(),
+                    ],
+                )?;
+                verify_macos_bundle(path, metal_stems)?;
+                if signed {
+                    command(
+                        "codesign",
+                        [
+                            OsStr::new("--verify"),
+                            OsStr::new("--deep"),
+                            OsStr::new("--strict"),
+                            path.as_os_str(),
+                        ],
+                    )?;
+                    command(
+                        "xcrun",
+                        [
+                            OsStr::new("stapler"),
+                            OsStr::new("validate"),
+                            path.as_os_str(),
+                        ],
+                    )?;
+                }
+            } else if fs::metadata(path)?.len() == 0 {
+                return Err(format!("Empty installer: {}", path.display()).into());
+            } else if extension == "dmg" {
+                command("hdiutil", [OsStr::new("verify"), path.as_os_str()])?;
+            } else if signed && cfg!(windows) {
+                success(powershell()
+                    .args(["-NoProfile", "-NonInteractive", "-Command", "$signature = Get-AuthenticodeSignature -LiteralPath $env:YTU_SIGNATURE_PATH; if ($signature.Status -ne 'Valid') { Write-Error $signature.StatusMessage; exit 1 }"])
+                    .env("YTU_SIGNATURE_PATH", path))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn verify_windows_executable(executable: &Path) -> Result {
+    let bytes = fs::read(executable)?;
+    if bytes.get(..2) != Some(b"MZ") {
+        return Err("The Windows application is not a PE executable".into());
+    }
+    let pointer: [u8; 4] = bytes
+        .get(0x3c..0x40)
+        .ok_or("Missing PE header offset")?
+        .try_into()?;
+    let pe = u32::from_le_bytes(pointer) as usize;
+    if bytes.get(pe..pe + 4) != Some(b"PE\0\0")
+        || bytes.get(pe + 4..pe + 6) != Some(&[0x64, 0x86])
+        || bytes.get(pe + 24..pe + 26) != Some(&[0x0b, 0x02])
+        || bytes.get(pe + 92..pe + 94) != Some(&[2, 0])
+    {
+        return Err("Expected a Windows x64 PE32+ GUI application".into());
+    }
+    println!(
+        "Windows x64 GUI executable verified: {}",
+        executable.display()
+    );
+    Ok(())
+}
+
+fn verify_macos_bundle(bundle: &Path, metal_stems: bool) -> Result {
+    let host = rust_host()?;
+    let architecture = if host.starts_with("aarch64-") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
+    let executable = bundle.join("Contents/MacOS/yt-ultimate");
+    // Programs list their dependencies after one header line, libraries
+    // after the header and their own install name.
+    let mut pending = vec![(executable.clone(), true)];
+    if architecture == "arm64" {
+        let worker = bundle.join("Contents/MacOS").join(DJ_WORKER);
+        let runtime = bundle
+            .join("Contents/Frameworks")
+            .join(ONNX_RUNTIME_LIBRARY);
+        let model = bundle.join("Contents/Resources/models").join(BEAT_MODEL);
+        for path in [&worker, &runtime, &model] {
+            if !path.is_file() {
+                return Err(format!("Missing DJ file: {}", path.display()).into());
+            }
+        }
+        pending.push((worker, true));
+        pending.push((runtime, false));
+        // The fusions are optional; when bundled, their program must run here
+        // on system libraries alone.
+        let fusion = bundle.join("Contents/MacOS").join(FUSION_PROGRAM);
+        if fusion.is_file() {
+            if !bundle
+                .join("Contents/Resources/models")
+                .join(FUSION_MODELS)
+                .is_dir()
+            {
+                return Err("The fusion program is bundled without its model".into());
+            }
+            pending.push((fusion, true));
+        }
+    }
+    let mut inspected = HashSet::new();
+    while let Some((binary, program)) = pending.pop() {
+        if !inspected.insert(binary.clone()) {
+            continue;
+        }
+        command(
+            "lipo",
+            [
+                binary.as_os_str(),
+                OsStr::new("-verify_arch"),
+                OsStr::new(architecture),
+            ],
+        )?;
+        let dependencies = Command::new("otool").arg("-L").arg(&binary).output()?;
+        if !dependencies.status.success() {
+            return Err("Could not inspect packaged native dependencies".into());
+        }
+        for line in String::from_utf8(dependencies.stdout)?
+            .lines()
+            .skip(if program { 1 } else { 2 })
+        {
+            let dependency = line.trim().split(" (").next().unwrap_or("");
+            if dependency.starts_with("/System/Library/") || dependency.starts_with("/usr/lib/") {
+                continue;
+            }
+            if metal_stems {
+                return Err(
+                    format!("Metal edition must use system libraries: {dependency}").into(),
+                );
+            }
+            let bundled = if let Some(relative) = dependency.strip_prefix("@executable_path/") {
+                executable.parent().unwrap().join(relative)
+            } else if let Some(relative) = dependency.strip_prefix("@rpath/") {
+                bundle.join("Contents/Frameworks").join(relative)
+            } else if let Some(relative) = dependency.strip_prefix("@loader_path/") {
+                binary.parent().unwrap().join(relative)
+            } else {
+                return Err(format!(
+                    "The app links to an external build-machine library: {dependency}"
+                )
+                .into());
+            };
+            let resolved = bundled
+                .canonicalize()
+                .map_err(|_| format!("Missing bundled library: {dependency}"))?;
+            if !resolved.starts_with(bundle.canonicalize()?) {
+                return Err(format!("Library escapes the app bundle: {dependency}").into());
+            }
+            pending.push((resolved, false));
+        }
+    }
+    let mut files = Vec::new();
+    collect_outputs(&bundle.join("Contents"), &mut files)?;
+    for path in files {
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_ascii_lowercase();
+        let extension = path
+            .extension()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_ascii_lowercase();
+        if metal_stems && (TORCH_LIBRARIES.contains(&name.as_str()) || name == TORCH_MODEL.filename)
+        {
+            return Err(format!(
+                "Legacy inference asset unexpectedly included in the Metal app: {}",
+                path.display()
+            )
+            .into());
+        }
+        if matches!(name.as_str(), "electron" | "node" | "python" | "python3")
+            || name.starts_with("python3.")
+            || name.contains("torch_python")
+            || matches!(extension.as_str(), "asar" | "py" | "pyc" | "pyd")
+        {
+            return Err(format!(
+                "Legacy runtime unexpectedly included in the Rust app: {}",
+                path.display()
+            )
+            .into());
+        }
+    }
+    println!(
+        "Verified {architecture} app, bundled/system dependencies and absence of legacy runtimes."
+    );
+    Ok(())
+}
+
+fn collect_outputs(directory: &Path, output: &mut Vec<PathBuf>) -> Result {
+    for entry in fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path.extension() == Some(OsStr::new("app")) {
+            output.push(path);
+        } else if path.is_dir() {
+            collect_outputs(&path, output)?;
+        } else {
+            output.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn optional_json(value: Option<String>) -> String {
+    value
+        .map(|value| json(&value))
+        .unwrap_or_else(|| "null".into())
+}
+
+fn json(value: &str) -> String {
+    let mut output = String::from("\"");
+    for character in value.chars() {
+        match character {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            character if character.is_control() => {
+                output.push_str(&format!("\\u{:04x}", character as u32))
+            }
+            character => output.push(character),
+        }
+    }
+    output.push('"');
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn windows_security_module_loads_when_cargo_is_started_from_pwsh() {
+        let output = powershell().args([
+            "-NoProfile", "-NonInteractive", "-Command",
+            "$ErrorActionPreference='Stop'; Get-AuthenticodeSignature -LiteralPath $env:ComSpec | Out-Null; Get-FileHash -Algorithm SHA256 -LiteralPath $env:ComSpec | Out-Null",
+        ]).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn checksums_are_native_and_do_not_depend_on_shell_output_encoding() {
+        use std::io::Write;
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            env::temp_dir().join(format!("ytu checksum {} {unique}.bin", std::process::id()));
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"abc").unwrap();
+        drop(file);
+        let actual = file_sha256(&path);
+        fs::remove_file(&path).unwrap();
+        assert_eq!(
+            actual.unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert!(file_sha256(&path).is_err());
+    }
+
+    #[test]
+    fn windows_paths_and_installer_source_are_escaped_without_shell_interpolation() {
+        assert_eq!(
+            json("C:\\Users\\A B\\\"app\"\n$INSTDIR"),
+            "\"C:\\\\Users\\\\A B\\\\\\\"app\\\"\\n$INSTDIR\""
+        );
+    }
+}

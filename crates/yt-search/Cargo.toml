@@ -1,0 +1,11 @@
+[package]
+name = "yt-search"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Pure search relevance, typo tolerance, completion and result fusion for YT Ultimate"
+
+[dependencies]
+unicode-normalization = "0.1"
+yt-core = { path = "../yt-core" }

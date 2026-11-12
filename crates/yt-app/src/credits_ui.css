@@ -1,0 +1,55 @@
+/* Credits dialog: who wrote, produced and released a song. */
+
+.credits-panel {
+  width: min(520px, calc(100vw - 48px));
+}
+
+.credits-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.credits-heading .thumb {
+  flex: none;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.credits-heading__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.credits-heading__eyebrow {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.credits-heading__artist {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.credits-list {
+  display: flex;
+  flex-direction: column;
+  max-height: min(60vh, 520px);
+  padding-top: 6px;
+  overflow-y: auto;
+}
+
+.credits-empty {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}

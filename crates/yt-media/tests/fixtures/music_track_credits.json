@@ -1,0 +1,184 @@
+{
+ "onResponseReceivedActions": [
+  {
+   "openPopupAction": {
+    "popup": {
+     "dismissableDialogRenderer": {
+      "title": "Créditos de la canción",
+      "sections": [
+       {
+        "dismissableDialogContentSectionRenderer": {
+         "title": {
+          "runs": [
+           {
+            "text": "Interpretada por"
+           }
+          ]
+         },
+         "subtitle": {
+          "runs": [
+           {
+            "text": "Artist One"
+           },
+           {
+            "text": "\n"
+           },
+           {
+            "text": "Artist Two"
+           }
+          ]
+         }
+        }
+       },
+       {
+        "dismissableDialogContentSectionRenderer": {
+         "title": {
+          "runs": [
+           {
+            "text": "Escrita por"
+           }
+          ]
+         },
+         "subtitle": {
+          "runs": [
+           {
+            "text": "Artist Two"
+           }
+          ]
+         }
+        }
+       },
+       {
+        "dismissableDialogContentSectionRenderer": {
+         "title": {
+          "runs": [
+           {
+            "text": "Producida por"
+           }
+          ]
+         },
+         "subtitle": {
+          "runs": [
+           {
+            "text": "Producer One"
+           },
+           {
+            "text": "\n"
+           },
+           {
+            "text": "Producer Two “Nickname”"
+           },
+           {
+            "text": "\n"
+           },
+           {
+            "text": "Producer Three"
+           }
+          ]
+         }
+        }
+       },
+       {
+        "dismissableDialogContentSectionRenderer": {
+         "title": {
+          "runs": [
+           {
+            "text": "Metadatos musicales proporcionados por"
+           }
+          ]
+         },
+         "subtitle": {
+          "runs": [
+           {
+            "text": "2024 Fixture Records"
+           }
+          ]
+         }
+        }
+       }
+      ],
+      "metadata": {
+       "musicMultiRowListItemRenderer": {
+        "thumbnail": {
+         "musicThumbnailRenderer": {
+          "thumbnail": {
+           "thumbnails": [
+            {
+             "url": "https://yt3.googleusercontent.com/trackCreditsCoverPlaceholder=w60-h60-l90-rj",
+             "width": 60,
+             "height": 60
+            },
+            {
+             "url": "https://yt3.googleusercontent.com/trackCreditsCoverPlaceholder=w544-h544-l90-rj",
+             "width": 544,
+             "height": 544
+            }
+           ]
+          }
+         }
+        },
+        "subtitle": {
+         "runs": [
+          {
+           "text": "Artist One",
+           "navigationEndpoint": {
+            "browseEndpoint": {
+             "browseId": "UCfixtureChannel00000001",
+             "browseEndpointContextSupportedConfigs": {
+              "browseEndpointContextMusicConfig": {
+               "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+              }
+             }
+            }
+           }
+          }
+         ]
+        },
+        "title": {
+         "runs": [
+          {
+           "text": "Song Title",
+           "navigationEndpoint": {
+            "watchEndpoint": {
+             "videoId": "fixture0022",
+             "watchEndpointMusicSupportedConfigs": {
+              "watchEndpointMusicConfig": {
+               "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+              }
+             }
+            }
+           }
+          }
+         ]
+        },
+        "secondTitle": {
+         "runs": [
+          {
+           "text": "Canción"
+          },
+          {
+           "text": " • "
+          },
+          {
+           "text": "2024"
+          }
+         ]
+        },
+        "description": {
+         "runs": [
+          {
+           "text": "Aún no tenemos la letra"
+          }
+         ]
+        },
+        "displayStyle": "MUSIC_MULTI_ROW_LIST_ITEM_DISPLAY_STYLE_SIMPLE_EXPANDED"
+       }
+      },
+      "displayStyle": "DISMISSABLE_DIALOG_DISPLAY_STYLE_TRACK_CREDITS"
+     }
+    },
+    "popupType": "DIALOG"
+   }
+  }
+ ]
+}

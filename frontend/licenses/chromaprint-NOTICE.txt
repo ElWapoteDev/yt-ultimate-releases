@@ -1,0 +1,7 @@
+Chromaprint / fpcalc 1.6.2
+Copyright Lukas Lalinsky and contributors.
+Unmodified official binaries: https://github.com/acoustid/chromaprint/releases/tag/v1.6.2
+Corresponding source: https://github.com/acoustid/chromaprint/tree/v1.6.2
+Build recipes and dependency versions: https://github.com/acoustid/chromaprint/tree/v1.6.2/.github
+The standalone executable can be replaced via YTU_FPCALC_PATH.
+See chromaprint-LICENSE.md and chromaprint-LGPL-2.1.txt.

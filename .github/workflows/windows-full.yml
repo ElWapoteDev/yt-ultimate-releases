@@ -1,0 +1,140 @@
+name: Windows Full validation
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-full-${{ github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  published-preview:
+    name: Install and run published v5.0.0
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and verify the immutable published installer
+        shell: pwsh
+        run: ./packaging/ci/prepare-windows-native.ps1 -ReleaseOnly
+      - name: Install, start without development paths and uninstall
+        shell: pwsh
+        run: ./packaging/ci/windows-installed-smoke.ps1 -Installer $env:YTU_PUBLISHED_INSTALLER -ResultsDirectory target/ci-results/published-preview
+      - name: Save native installation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-published-preview-evidence-${{ github.run_id }}
+          path: target/ci-results/published-preview/
+          if-no-files-found: warn
+          retention-days: 14
+
+  current-source:
+    name: Build, test and install Windows Full
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      CARGO_TERM_COLOR: always
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify the exact release source before compiling
+        shell: pwsh
+        run: python packaging/ci/source-provenance.py --expected-commit $env:SOURCE_COMMIT
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-full-native
+          cache-on-failure: true
+      - name: Configure the native Windows toolchain
+        shell: pwsh
+        run: |
+          $llvmBin = 'C:\Program Files\LLVM\bin'
+          if (-not (Test-Path -LiteralPath (Join-Path $llvmBin 'libclang.dll'))) { throw 'LLVM libclang.dll is required' }
+          "LIBCLANG_PATH=$llvmBin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          cmake --version
+          if ($LASTEXITCODE -ne 0) { throw 'CMake is required' }
+      - name: Prepare pinned LibTorch, model and app-local CRT
+        shell: pwsh
+        run: ./packaging/ci/prepare-windows-native.ps1
+      - name: Validate packaging dependencies and Microsoft signature before compiling the app
+        run: cargo run --locked -p xtask -- prepare --native-stems --formats nsis
+      - name: Test the complete Rust workspace on Windows
+        run: cargo test --workspace --locked --features native-stems
+      - name: Check formatting and lint the complete feature set
+        shell: pwsh
+        run: |
+          cargo fmt --all -- --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo clippy --workspace --all-targets --locked --features native-stems -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Restore the pinned packager
+        id: packager-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: target/packager-tools
+          key: cargo-packager-0.11.8-${{ runner.os }}-${{ runner.arch }}
+      - name: Install the pinned packager
+        if: steps.packager-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-packager --version 0.11.8 --locked --root target/packager-tools
+      - name: Save the packager before application validation
+        if: steps.packager-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: target/packager-tools
+          key: cargo-packager-0.11.8-${{ runner.os }}-${{ runner.arch }}
+      - name: Build the Full NSIS installer on Windows
+        run: cargo run --locked -p xtask -- package --native-stems --formats nsis
+      - name: Build native CPU inference and quality probes
+        shell: pwsh
+        run: |
+          cargo build --locked --release -p yt-media --features native-stems --example stems_probe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --locked --release -p yt-quality --features native-stems --example quality_probe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Exercise installed app, codecs and CPU inference with bundled DLLs
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -Path 'target/packages/x86_64-pc-windows-msvc/*/full/*_full-setup.exe')
+          if ($installers.Count -ne 1) { throw 'Expected exactly one newly built Full installer' }
+          ./packaging/ci/windows-installed-smoke.ps1 -Installer $installers[0].FullName -InstalledExecutableName 'YT Ultimate.exe' -ExerciseUpdater -StemsProbe target/release/examples/stems_probe.exe -QualityProbe target/release/examples/quality_probe.exe
+      - name: Upgrade the original Electron 4.4.1 installation and preserve its profile
+        shell: pwsh
+        run: |
+          $legacy = Join-Path $env:RUNNER_TEMP 'YT-Ultimate-Setup-4.4.1.exe'
+          Invoke-WebRequest -Uri 'https://github.com/ElWapoteDev/yt-ultimate-releases/releases/download/v4.4.1/YT-Ultimate-Setup-4.4.1.exe' -OutFile $legacy
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $legacy).Hash.ToLowerInvariant() -ne 'ceabe0bb895fcdd1a5deb8d82d601cb1dc0afd9c566f634ce7a44799327dd154') { throw 'Legacy installer hash mismatch' }
+          $installers = @(Get-ChildItem -Path 'target/packages/x86_64-pc-windows-msvc/*/full/*_full-setup.exe')
+          if ($installers.Count -ne 1) { throw 'Expected exactly one newly built Full installer' }
+          ./packaging/ci/windows-installed-smoke.ps1 -Installer $installers[0].FullName -InstalledExecutableName 'YT Ultimate.exe' -LegacyInstaller $legacy -ResultsDirectory target/ci-results/windows-upgrade
+      - name: Bind the installer checksum to the exact source commit
+        shell: pwsh
+        run: python packaging/ci/source-provenance.py --expected-commit $env:SOURCE_COMMIT --package-root target/packages/x86_64-pc-windows-msvc
+      - name: Upload Full installer and evidence for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: YT-Ultimate-Windows-Full-${{ env.SOURCE_COMMIT }}
+          path: |
+            target/packages/x86_64-pc-windows-msvc/*/full/*_full-setup.exe
+            target/packages/x86_64-pc-windows-msvc/*/full/SHA256SUMS
+            target/packages/x86_64-pc-windows-msvc/*/full/BUILD-SOURCE.json
+            target/ci-results/windows-installed/
+            target/ci-results/windows-upgrade/
+          if-no-files-found: warn
+          retention-days: 14

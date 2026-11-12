@@ -1,0 +1,40 @@
+[project]
+name = "yt-ultimate-backend"
+version = "4.5.1"
+description = "Local media, download, processing, and plugin service for YT Ultimate"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+  "fastapi==0.121.3",
+  "platformdirs==4.9.6",
+  "pytubefix==11.1.0",
+  "requests==2.32.5",
+  "uvicorn==0.38.0",
+  "yt-dlp[default]==2026.8.19",
+]
+
+[project.optional-dependencies]
+processing = [
+  "audio-separator[cpu]==0.44.2",
+  "beartype>=0.18.5,<0.19",
+  "soxr==1.1.0",
+]
+build = [
+  "pyinstaller==6.21.0",
+]
+
+[project.scripts]
+yt-ultimate-backend = "ytultimate.__main__:main"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = ["venv", "models"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+include = ["ytultimate"]
+exclude = ["venv", "models"]
+typeCheckingMode = "standard"

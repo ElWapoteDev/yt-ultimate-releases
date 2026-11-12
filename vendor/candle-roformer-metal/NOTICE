@@ -1,0 +1,30 @@
+candle-roformer
+Copyright (c) 2026 Alexey
+
+This crate is licensed under the MIT License; see LICENSE.
+
+It is a Rust/Candle port and reimplementation of work by others:
+
+- MelBandRoformer model code: Music-Source-Separation-Training
+  https://github.com/ZFTurbo/Music-Source-Separation-Training
+  MIT, Copyright 2024 Roman Solovyev.
+
+- Rotary embeddings (as used by the model): lucidrains/rotary-embedding-torch
+  https://github.com/lucidrains/rotary-embedding-torch
+  MIT.
+
+- Separation model lineage and inference conventions: Ultimate Vocal Remover
+  https://github.com/Anjok07/ultimatevocalremovergui
+  MIT.
+
+- Whisper transcription layer and mel filter banks: OpenAI Whisper
+  https://github.com/openai/whisper
+  MIT, Copyright 2022 OpenAI.
+
+- Whisper model plumbing follows the Candle example
+  https://github.com/huggingface/candle
+  MIT OR Apache-2.0, Copyright 2023-2024 Hugging Face.
+
+Pinned revisions, file hashes and the licence audit for dependencies are kept
+in the repository (docs/provenance, docs/dependency-audit.md). Model weights
+are not distributed with this crate and are covered by their own licences.

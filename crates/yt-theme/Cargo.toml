@@ -1,0 +1,10 @@
+[package]
+name = "yt-theme"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Accessible color palettes extracted from artwork for YT Ultimate"
+
+[dependencies]
+thiserror = "2"

@@ -1,0 +1,163 @@
+{
+ "contents": {
+  "twoColumnWatchNextResults": {
+   "results": {
+    "results": {
+     "contents": [
+      {
+       "ticketShelfRenderer": {
+        "title": "Evento más cercano - City 1, Region",
+        "events": [
+         {
+          "ticketEventRenderer": {
+           "title": "Artist 1 - Entradas para eventos",
+           "timeMonth": "May",
+           "timeDay": "22",
+           "linkText": "Vendor",
+           "buttonText": "VER ENTRADAS",
+           "buttonCommand": {
+            "urlEndpoint": {
+             "url": "https://www.youtube.com/redirect?event=ticket_shelf&redir_token=fixture-token&q=https%3A%2F%2Fwww.bandsintown.com%2Ft%2F1000001%3Fticket_id%3D1"
+            }
+           },
+           "subtitle1": "Sáb, 18:00 · Venue 1",
+           "subtitle2": "22 may, Sáb, 18:00",
+           "timeDate": "22 may",
+           "timeTime": "18:00",
+           "timeWeekday": "Sáb",
+           "buttonAccessibilityText": "Buscar entradas en Vendor",
+           "hasMultipleOffers": false
+          }
+         },
+         {
+          "ticketEventRenderer": {
+           "timeMonth": "Nov",
+           "timeDay": "19",
+           "linkText": "Vendor",
+           "buttonText": "VER ENTRADAS",
+           "buttonCommand": {
+            "urlEndpoint": {
+             "url": "https://www.youtube.com/redirect?event=ticket_shelf&redir_token=fixture-token&q=https%3A%2F%2Fwww.bandsintown.com%2Ft%2F1000002%3Fticket_id%3D1"
+            }
+           },
+           "subtitle1": "19 nov, Jue, 20:00",
+           "subtitle2": "City 2, Region · Venue 2",
+           "timeDate": "19 nov",
+           "timeTime": "20:00",
+           "timeWeekday": "Jue",
+           "buttonAccessibilityText": "Buscar entradas en Vendor",
+           "hasMultipleOffers": false
+          }
+         },
+         {
+          "ticketEventRenderer": {
+           "timeMonth": "Nov",
+           "timeDay": "19",
+           "linkText": "Vendor",
+           "buttonText": "VER ENTRADAS",
+           "buttonCommand": {
+            "urlEndpoint": {
+             "url": "https://www.youtube.com/redirect?event=ticket_shelf&redir_token=fixture-token&q=https%3A%2F%2Fwww.bandsintown.com%2Ft%2F1000003%3Fticket_id%3D1"
+            }
+           },
+           "subtitle1": "19 nov, Jue, 20:00",
+           "subtitle2": "City 2, Region · Venue 2",
+           "timeDate": "19 nov",
+           "timeTime": "20:00",
+           "timeWeekday": "Jue",
+           "buttonAccessibilityText": "Buscar entradas en Vendor",
+           "hasMultipleOffers": false
+          }
+         },
+         {
+          "ticketEventRenderer": {
+           "title": "Artist 1 - Entradas para eventos",
+           "timeMonth": "Nov",
+           "timeDay": "28",
+           "linkText": "Ver entradas",
+           "buttonText": "VER ENTRADAS",
+           "buttonCommand": {
+            "openPopupAction": {
+             "popup": {
+              "menuPopupRenderer": {
+               "items": [
+                {
+                 "menuCustomIconItemRenderer": {
+                  "actionText": {
+                   "simpleText": "Buscar en Vendor"
+                  },
+                  "command": {
+                   "urlEndpoint": {
+                    "url": "https://www.youtube.com/redirect?event=ticket_shelf&redir_token=fixture-token&q=https%3A%2F%2Fwww.bandsintown.com%2Ft%2F1000004%3Fticket_id%3D1"
+                   }
+                  }
+                 }
+                },
+                {
+                 "menuCustomIconItemRenderer": {
+                  "actionText": {
+                   "simpleText": "Buscar en Vendor"
+                  },
+                  "command": {
+                   "urlEndpoint": {
+                    "url": "https://www.youtube.com/redirect?event=ticket_shelf&redir_token=fixture-token&q=https%3A%2F%2Fwww.bandsintown.com%2Ft%2F1000004%3Fticket_id%3D1"
+                   }
+                  }
+                 }
+                }
+               ]
+              }
+             },
+             "popupType": "DROPDOWN"
+            }
+           },
+           "subtitle1": "28 nov, Sáb, 14:00",
+           "subtitle2": "Venue 3",
+           "timeDate": "28 nov",
+           "timeTime": "14:00",
+           "timeWeekday": "Sáb",
+           "buttonAccessibilityText": "Ver opciones de entradas",
+           "hasMultipleOffers": true
+          }
+         },
+         {
+          "ticketEventRenderer": {
+           "timeMonth": "Dic",
+           "timeDay": "1",
+           "linkText": "Vendor",
+           "buttonText": "VER ENTRADAS",
+           "buttonCommand": {
+            "urlEndpoint": {
+             "url": "https://www.youtube.com/redirect?event=ticket_shelf&redir_token=fixture-token&q=https%3A%2F%2Ftickets.example%2Fevent%2F1"
+            }
+           },
+           "subtitle1": "1 dic, Mar, 21:00",
+           "subtitle2": "City 5, Region · Venue 5",
+           "timeDate": "1 dic",
+           "timeTime": "21:00",
+           "timeWeekday": "Mar",
+           "buttonAccessibilityText": "Buscar entradas en Vendor",
+           "hasMultipleOffers": false
+          }
+         }
+        ],
+        "upcomingTitle": "Próximos eventos"
+       }
+      },
+      {
+       "videoPrimaryInfoRenderer": {
+        "title": {
+         "runs": [
+          {
+           "text": "Title 1"
+          }
+         ]
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}

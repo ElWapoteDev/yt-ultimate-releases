@@ -1,0 +1,145 @@
+name: Mac Intel Full validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-intel-full-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  intel-full:
+    runs-on: macos-15-intel
+    timeout-minutes: 240
+    env:
+      SOURCE_COMMIT: ${{ github.sha }}
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+      CXXFLAGS: '-std=c++20'
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify the exact release source before compiling
+        run: python3 packaging/ci/source-provenance.py --expected-commit "$SOURCE_COMMIT"
+      # Restore Cargo before writing any model or evidence under target: a
+      # partial cache hit cleans non-Cargo files from that directory.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-intel-full-cpu
+          cache-on-failure: true
+      - name: Restore the exact Intel LibTorch build
+        id: torch-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/libtorch-intel-2.12.0
+          key: libtorch-2.12.0-macos15-intel-validated-${{ hashFiles('packaging/ci/build-libtorch-intel.sh', 'packaging/ci/validate-libtorch-intel.sh', 'packaging/ci/macos-installed-smoke.py') }}
+      - name: Restore the compiled library before post-build validation
+        id: torch-compiled-cache
+        if: steps.torch-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/libtorch-intel-2.12.0
+          # Validation-only fixes must not discard a two-hour source build.
+          key: libtorch-2.12.0-macos15-intel-compiled-${{ hashFiles('packaging/ci/build-libtorch-intel.sh') }}
+      - name: Compile LibTorch 2.12 CPU from official sources
+        if: steps.torch-cache.outputs.cache-hit != 'true' && steps.torch-compiled-cache.outputs.cache-hit != 'true'
+        run: bash packaging/ci/build-libtorch-intel.sh
+      - name: Checkpoint the compiled library immediately
+        if: steps.torch-cache.outputs.cache-hit != 'true' && steps.torch-compiled-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/libtorch-intel-2.12.0
+          key: ${{ steps.torch-compiled-cache.outputs.cache-primary-key }}
+      - name: Validate architecture, deployment target and native CPU execution
+        if: steps.torch-cache.outputs.cache-hit != 'true'
+        run: bash packaging/ci/validate-libtorch-intel.sh
+      - name: Save the reusable native library before building the application
+        if: steps.torch-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/libtorch-intel-2.12.0
+          key: ${{ steps.torch-cache.outputs.cache-primary-key }}
+      - name: Archive the native dependency and provenance
+        run: |
+          test -f "$RUNNER_TEMP/libtorch-intel-2.12.0/BUILD-COMPLETE"
+          mkdir -p target/ci-results/intel-libtorch
+          tar -czf "$RUNNER_TEMP/libtorch-2.12.0-macos-x64-cpu.tar.gz" -C "$RUNNER_TEMP" libtorch-intel-2.12.0
+          shasum -a 256 "$RUNNER_TEMP/libtorch-2.12.0-macos-x64-cpu.tar.gz" > target/ci-results/intel-libtorch/archive.sha256
+          echo "LIBTORCH=$RUNNER_TEMP/libtorch-intel-2.12.0" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$RUNNER_TEMP/libtorch-intel-2.12.0/lib" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LibTorch-2.12.0-macos-x64-CPU-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/libtorch-2.12.0-macos-x64-cpu.tar.gz
+            target/ci-results/intel-libtorch/archive.sha256
+          compression-level: 0
+          retention-days: 30
+      - name: Extract the exact previously published model
+        run: |
+          dmg="$RUNNER_TEMP/ytu-model-source.dmg"
+          mount="$RUNNER_TEMP/ytu-model-source"
+          curl --fail --location --retry 3 --output "$dmg" 'https://github.com/ElWapoteDev/yt-ultimate-releases/releases/download/v5.0.0/YT.Ultimate_5.0.0_aarch64_full.dmg'
+          printf '%s  %s\n' b900e381f7a300ad8ef85b7e8036e0156abe69fe27a044bff9a4d9593478f632 "$dmg" | shasum -a 256 -c -
+          mkdir -p "$mount" target/native-deps
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$dmg"
+          trap 'hdiutil detach "$mount" || true' EXIT
+          cp "$mount/YT Ultimate.app/Contents/Resources/models/bs-roformer-v1.pt" target/native-deps/bs-roformer-v1.pt
+          hdiutil detach "$mount"
+          trap - EXIT
+          rm "$dmg" "$RUNNER_TEMP/libtorch-2.12.0-macos-x64-cpu.tar.gz"
+          printf '%s  %s\n' 31d794ab054bd70964b6165ceca3b94e00f344f8a0b8bc325def47ce9aa14926 target/native-deps/bs-roformer-v1.pt | shasum -a 256 -c -
+          echo "YTU_PACKAGE_STEMS_MODEL=$PWD/target/native-deps/bs-roformer-v1.pt" >> "$GITHUB_ENV"
+      - name: Test and lint the complete native feature set on Intel
+        run: |
+          cargo test --locked --workspace --features native-stems
+          cargo clippy --locked --workspace --all-targets --features native-stems -- -D warnings
+      - name: Restore the pinned packager
+        id: packager-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: target/packager-tools
+          key: cargo-packager-0.11.8-${{ runner.os }}-${{ runner.arch }}
+      - name: Install the pinned packager
+        if: steps.packager-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-packager --version 0.11.8 --locked --root target/packager-tools
+      - name: Save the packager before application validation
+        if: steps.packager-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: target/packager-tools
+          key: cargo-packager-0.11.8-${{ runner.os }}-${{ runner.arch }}
+      - name: Build the Full Intel application and CPU probes
+        run: |
+          cargo run --locked -p xtask -- package --native-stems --formats app,dmg
+          cargo build --locked --release -p yt-media --features native-stems --example stems_probe
+          cargo build --locked --release -p yt-quality --features native-stems --example quality_probe
+      - name: Verify native window, profile lock and inference using bundled libraries
+        run: python3 packaging/ci/macos-installed-smoke.py --package-root target/packages/x86_64-apple-darwin --results target/ci-results/intel-installed
+      - name: Bind the installer checksum to the exact source commit
+        run: python3 packaging/ci/source-provenance.py --expected-commit "$SOURCE_COMMIT" --package-root target/packages/x86_64-apple-darwin
+      - name: Save installer and all evidence without publishing a release
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: YT-Ultimate-Mac-Intel-Full-${{ env.SOURCE_COMMIT }}
+          path: |
+            target/packages/x86_64-apple-darwin/*/full/*.dmg
+            target/packages/x86_64-apple-darwin/*/full/SHA256SUMS
+            target/packages/x86_64-apple-darwin/*/full/BUILD-SOURCE.json
+            target/ci-results/
+          if-no-files-found: warn
+          retention-days: 14

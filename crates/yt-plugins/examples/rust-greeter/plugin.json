@@ -1,0 +1,33 @@
+{
+  "manifest_version": 2,
+  "api_version": 2,
+  "id": "dev.ytultimate.rust-greeter",
+  "name": "Saludador Rust",
+  "version": "1.0.0",
+  "description": "Ejemplo de un plugin escrito en Rust y ejecutado como WebAssembly sin acceso a archivos ni red.",
+  "author": "YT Ultimate",
+  "license": "LicenseRef-Proprietary",
+  "module": "plugin.wasm",
+  "commands": [
+    {
+      "id": "greet",
+      "label": "Saludar",
+      "description": "Devuelve un saludo usando la configuración del plugin.",
+      "arguments_schema": {
+        "type": "object",
+        "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 80}},
+        "additionalProperties": false
+      }
+    }
+  ],
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "greeting": {"type": "string", "minLength": 1, "maxLength": 80, "title": "Saludo"},
+      "uppercase": {"type": "boolean", "title": "Mayúsculas"}
+    },
+    "required": ["greeting", "uppercase"],
+    "additionalProperties": false
+  },
+  "default_config": {"greeting": "Hola", "uppercase": false}
+}

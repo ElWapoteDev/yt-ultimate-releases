@@ -1,0 +1,456 @@
+/* Full-screen now playing: blurred artwork, a slowly moving aurora in the
+   song's colors, large controls. Only transform and opacity animate, plus
+   the registered ambient colors when the song changes. */
+
+.now-playing {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  animation: np-enter 360ms var(--ease-out);
+}
+
+@keyframes np-enter {
+  from { opacity: 0; transform: scale(1.02); }
+  to { opacity: 1; transform: none; }
+}
+
+.now-playing__backdrop {
+  position: absolute;
+  inset: -12%;
+  opacity: 0.55;
+  filter: blur(72px) saturate(1.5);
+  transform: scale(1.15);
+}
+
+.now-playing__backdrop .thumb,
+.now-playing__backdrop .thumb img {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  object-fit: cover;
+}
+
+.now-playing__backdrop .thumb-placeholder {
+  display: none;
+}
+
+/* Aurora: soft blobs in the cover's three ambient colors and its accent
+   (published by src/theme.rs) drift on their own compositor layers, inside a
+   layer that turns once every four minutes. It moves only while playing. */
+.now-playing__aurora {
+  position: absolute;
+  inset: -25%;
+  pointer-events: none;
+  animation: np-aurora-turn 240s linear infinite;
+}
+
+.np-aurora__blob {
+  position: absolute;
+  width: 62vmax;
+  height: 62vmax;
+  border-radius: 50%;
+  opacity: 0.85;
+  will-change: transform;
+  animation: 43s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+  transition:
+    --ambient 900ms var(--ease-out),
+    --ambient-2 900ms var(--ease-out),
+    --ambient-3 900ms var(--ease-out);
+}
+
+.np-aurora__blob--1 {
+  top: 4%;
+  left: 6%;
+  background: radial-gradient(closest-side, var(--ambient), color-mix(in srgb, var(--ambient) 45%, transparent) 55%, transparent);
+  animation-name: np-aurora-a;
+}
+
+.np-aurora__blob--2 {
+  right: 4%;
+  bottom: 2%;
+  background: radial-gradient(closest-side, var(--ambient-2), color-mix(in srgb, var(--ambient-2) 45%, transparent) 55%, transparent);
+  animation-name: np-aurora-b;
+  animation-duration: 53s;
+}
+
+.np-aurora__blob--3 {
+  top: 22%;
+  right: 16%;
+  width: 50vmax;
+  height: 50vmax;
+  background: radial-gradient(closest-side, var(--ambient-3), color-mix(in srgb, var(--ambient-3) 45%, transparent) 55%, transparent);
+  animation-name: np-aurora-c;
+  animation-duration: 37s;
+}
+
+.np-aurora__blob--4 {
+  bottom: 18%;
+  left: 24%;
+  width: 44vmax;
+  height: 44vmax;
+  background: radial-gradient(closest-side, var(--accent), transparent);
+  opacity: 0.3;
+  animation-name: np-aurora-d;
+  animation-duration: 31s;
+}
+
+.now-playing__aurora,
+.np-aurora__blob {
+  animation-play-state: paused;
+}
+
+.now-playing--playing .now-playing__aurora,
+.now-playing--playing .np-aurora__blob {
+  animation-play-state: running;
+}
+
+@keyframes np-aurora-turn {
+  to { transform: rotate(1turn); }
+}
+
+@keyframes np-aurora-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(14vmax, 9vmax, 0) scale(1.16); }
+  to { transform: translate3d(5vmax, 20vmax, 0) scale(0.94); }
+}
+
+@keyframes np-aurora-b {
+  from { transform: translate3d(0, 0, 0) scale(1.08); }
+  50% { transform: translate3d(-16vmax, -7vmax, 0) scale(0.92); }
+  to { transform: translate3d(-6vmax, -18vmax, 0) scale(1.12); }
+}
+
+@keyframes np-aurora-c {
+  from { transform: translate3d(0, 0, 0) scale(0.95); }
+  50% { transform: translate3d(-12vmax, 10vmax, 0) scale(1.2); }
+  to { transform: translate3d(8vmax, -6vmax, 0) scale(1); }
+}
+
+@keyframes np-aurora-d {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(12vmax, -10vmax, 0) scale(1.25); }
+  to { transform: translate3d(-10vmax, -4vmax, 0) scale(0.9); }
+}
+
+.now-playing__shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.42), transparent 22%, transparent 70%, rgba(0, 0, 0, 0.5)),
+    rgba(0, 0, 0, 0.18);
+}
+
+.now-playing__header,
+.now-playing__body {
+  position: relative;
+}
+
+.now-playing__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 22px 28px 0;
+}
+
+.now-playing__context {
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.now-playing__spacer,
+.now-playing__icon-button {
+  flex: none;
+  width: 40px;
+  height: 40px;
+}
+
+.now-playing__icon-button {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: background 160ms var(--ease-out), transform 160ms var(--ease-out);
+}
+
+.now-playing__icon-button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.now-playing__icon-button:active {
+  transform: scale(0.94);
+}
+
+.now-playing__body {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(32px, 6vw, 96px);
+  min-height: 0;
+  padding: 24px clamp(28px, 6vw, 96px) 48px;
+}
+
+/* The cover and, during a blend, the rings behind it and the leaving
+   song's cover on top of it (dj_ui.css). */
+.now-playing__art-stack {
+  position: relative;
+  flex: none;
+}
+
+.now-playing__art {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: min(46vh, 40vw, 560px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  box-shadow:
+    0 40px 90px rgba(0, 0, 0, 0.55),
+    0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  transform: scale(0.94);
+  transition: transform 700ms var(--ease-out);
+}
+
+.now-playing--playing .now-playing__art {
+  transform: none;
+}
+
+.now-playing__art .thumb,
+.now-playing__art .thumb img {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  object-fit: cover;
+}
+
+.now-playing__panel {
+  /* Above the rings that leave the cover during a blend. */
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  width: min(460px, 42vw);
+  min-width: 0;
+}
+
+.now-playing__titles {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.now-playing__title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: clamp(26px, 3.2vw, 44px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.now-playing__artist {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 17px;
+}
+
+.now-playing__favorite {
+  width: 40px;
+  height: 40px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.now-playing__favorite.favorite-button--on {
+  color: var(--accent);
+}
+
+.now-playing__seek .player-progress-section {
+  width: 100%;
+  max-width: none;
+}
+
+.np-controls {
+  justify-content: space-between;
+  gap: 0;
+}
+
+.np-controls .player-btn {
+  width: 48px;
+  height: 48px;
+}
+
+.np-controls .player-btn-play {
+  width: 68px;
+  height: 68px;
+  color: var(--on-accent);
+  background: var(--accent);
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+.np-controls .player-btn-play:hover {
+  background: var(--accent-hover);
+}
+
+/* Secondary actions: bare icons in the language of shuffle and repeat, named
+   by their tooltips. A toggle that is on takes the accent and a dot, so its
+   state never rests on color alone. */
+.now-playing__actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+
+.np-action {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 160ms var(--ease-out), transform 160ms var(--ease-out);
+}
+
+.np-action:hover {
+  color: var(--text-primary);
+}
+
+.np-action:active {
+  transform: scale(0.92);
+}
+
+.np-action--on,
+.np-action--on:hover {
+  color: var(--accent);
+}
+
+.np-action--on::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.now-playing__next {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border: 0.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
+}
+
+.now-playing__next-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.np-link {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.np-link:hover {
+  color: var(--text-primary);
+}
+
+.now-playing__next-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.now-playing__next-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.now-playing__next-title,
+.now-playing__next-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.now-playing__next-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.now-playing__next-artist {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+@media (max-width: 900px), (max-height: 620px) {
+  .now-playing__body {
+    flex-direction: column;
+    gap: 24px;
+    overflow-y: auto;
+  }
+  .now-playing__art {
+    width: min(38vh, 72vw);
+  }
+  .now-playing__panel {
+    width: min(520px, 88vw);
+  }
+  .now-playing__next {
+    display: none;
+  }
+  /* The body scrolls here: rings that leave the cover would move its edges. */
+  .now-playing .dj-rings {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .now-playing,
+  .now-playing__aurora,
+  .np-aurora__blob {
+    animation: none;
+  }
+  .now-playing__art {
+    transition: none;
+  }
+}

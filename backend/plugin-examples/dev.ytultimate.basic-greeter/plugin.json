@@ -1,0 +1,55 @@
+{
+  "api_version": 1,
+  "author": "YT Ultimate",
+  "config_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "greeting": {
+        "default": "Hola",
+        "description": "Texto que aparece antes del nombre.",
+        "maxLength": 80,
+        "minLength": 1,
+        "title": "Saludo",
+        "type": "string"
+      },
+      "punctuation": {
+        "default": "!",
+        "description": "Signo colocado al final del saludo.",
+        "enum": [
+          "!",
+          ".",
+          "✨"
+        ],
+        "title": "Puntuación",
+        "type": "string"
+      },
+      "uppercase": {
+        "default": false,
+        "description": "Convierte el mensaje completo a mayúsculas.",
+        "title": "Usar mayúsculas",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "greeting",
+      "punctuation",
+      "uppercase"
+    ],
+    "type": "object"
+  },
+  "default_config": {
+    "greeting": "Hola",
+    "punctuation": "!",
+    "uppercase": false
+  },
+  "description": "Ejemplo básico de un saludo configurable y sin efectos secundarios.",
+  "entrypoint": "plugin.py:setup",
+  "homepage": "",
+  "id": "dev.ytultimate.basic-greeter",
+  "license": "",
+  "manifest_version": 1,
+  "name": "Saludador básico",
+  "permissions": [],
+  "version": "1.0.0",
+  "x-example-level": "basic"
+}

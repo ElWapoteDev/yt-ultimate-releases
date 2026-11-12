@@ -1,0 +1,48 @@
+/* Settings rows added for playback, discovery and privacy. */
+
+.settings-row--slider {
+  gap: 16px;
+}
+
+.settings-slider {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-slider input[type="range"] {
+  width: 160px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.settings-slider__value {
+  min-width: 34px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.settings-row__actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.rust-danger-fill {
+  color: #fff;
+  background: var(--system-red);
+}
+
+.rust-danger-fill:hover {
+  background: color-mix(in oklab, var(--system-red) 85%, white);
+}
+
+/* The license of the model behind AI fusions asks for this line. */
+.settings-attribution {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}

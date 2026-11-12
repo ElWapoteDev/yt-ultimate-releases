@@ -1,0 +1,280 @@
+{
+ "contents": {
+  "twoColumnBrowseResultsRenderer": {
+   "tabs": [
+    {
+     "tabRenderer": {
+      "content": {
+       "sectionListRenderer": {}
+      }
+     }
+    }
+   ],
+   "secondaryContents": {
+    "sectionListRenderer": {
+     "contents": [
+      {
+       "musicPlaylistShelfRenderer": {
+        "contents": [
+         {
+          "musicResponsiveListItemRenderer": {
+           "thumbnail": {
+            "musicThumbnailRenderer": {
+             "thumbnail": {
+              "thumbnails": [
+               {
+                "url": "https://yt3.googleusercontent.com/fixtureImage018=w60-h60-l90-rj",
+                "width": 60
+               },
+               {
+                "url": "https://yt3.googleusercontent.com/fixtureImage018=w120-h120-l90-rj",
+                "width": 120
+               }
+              ]
+             }
+            }
+           },
+           "overlay": {
+            "musicItemThumbnailOverlayRenderer": {
+             "content": {
+              "musicPlayButtonRenderer": {
+               "playNavigationEndpoint": {
+                "watchEndpoint": {
+                 "videoId": "fixture0010",
+                 "playlistId": "OLAK5uy_fixtureAlbum000000000000000000014",
+                 "watchEndpointMusicSupportedConfigs": {
+                  "watchEndpointMusicConfig": {
+                   "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                  }
+                 }
+                }
+               }
+              }
+             }
+            }
+           },
+           "flexColumns": [
+            {
+             "musicResponsiveListItemFlexColumnRenderer": {
+              "text": {
+               "runs": [
+                {
+                 "text": "Title 25",
+                 "navigationEndpoint": {
+                  "watchEndpoint": {
+                   "videoId": "fixture0010",
+                   "playlistId": "OLAK5uy_fixtureAlbum000000000000000000014",
+                   "watchEndpointMusicSupportedConfigs": {
+                    "watchEndpointMusicConfig": {
+                     "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              }
+             }
+            },
+            {
+             "musicResponsiveListItemFlexColumnRenderer": {
+              "text": {
+               "runs": [
+                {
+                 "text": "Artist 9",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "UCfixtureChannel00000009",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              }
+             }
+            },
+            {
+             "musicResponsiveListItemFlexColumnRenderer": {
+              "text": {
+               "runs": [
+                {
+                 "text": "Album 15",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "MPREb_fixt0000007",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              }
+             }
+            }
+           ],
+           "fixedColumns": [
+            {
+             "musicResponsiveListItemFixedColumnRenderer": {
+              "text": {
+               "runs": [
+                {
+                 "text": "5:05"
+                }
+               ]
+              }
+             }
+            }
+           ],
+           "playlistItemData": {
+            "videoId": "fixture0010",
+            "voteSortValue": 1779842942
+           }
+          }
+         },
+         {
+          "musicResponsiveListItemRenderer": {
+           "thumbnail": {
+            "musicThumbnailRenderer": {
+             "thumbnail": {
+              "thumbnails": [
+               {
+                "url": "https://yt3.googleusercontent.com/fixtureImage018=w60-h60-l90-rj",
+                "width": 60
+               },
+               {
+                "url": "https://yt3.googleusercontent.com/fixtureImage018=w120-h120-l90-rj",
+                "width": 120
+               }
+              ]
+             }
+            }
+           },
+           "overlay": {
+            "musicItemThumbnailOverlayRenderer": {
+             "content": {
+              "musicPlayButtonRenderer": {
+               "playNavigationEndpoint": {
+                "watchEndpoint": {
+                 "videoId": "fixture0011",
+                 "playlistId": "OLAK5uy_fixtureAlbum000000000000000000014",
+                 "watchEndpointMusicSupportedConfigs": {
+                  "watchEndpointMusicConfig": {
+                   "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                  }
+                 }
+                }
+               }
+              }
+             }
+            }
+           },
+           "flexColumns": [
+            {
+             "musicResponsiveListItemFlexColumnRenderer": {
+              "text": {
+               "runs": [
+                {
+                 "text": "Title 26",
+                 "navigationEndpoint": {
+                  "watchEndpoint": {
+                   "videoId": "fixture0011",
+                   "playlistId": "OLAK5uy_fixtureAlbum000000000000000000014",
+                   "watchEndpointMusicSupportedConfigs": {
+                    "watchEndpointMusicConfig": {
+                     "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              }
+             }
+            },
+            {
+             "musicResponsiveListItemFlexColumnRenderer": {
+              "text": {
+               "runs": [
+                {
+                 "text": "Artist 9",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "UCfixtureChannel00000009",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              }
+             }
+            },
+            {
+             "musicResponsiveListItemFlexColumnRenderer": {
+              "text": {
+               "runs": [
+                {
+                 "text": "Album 15",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "MPREb_fixt0000007",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              }
+             }
+            }
+           ],
+           "fixedColumns": [
+            {
+             "musicResponsiveListItemFixedColumnRenderer": {
+              "text": {
+               "runs": [
+                {
+                 "text": "5:29"
+                }
+               ]
+              }
+             }
+            }
+           ],
+           "playlistItemData": {
+            "videoId": "fixture0011",
+            "voteSortValue": 1779842942
+           }
+          }
+         },
+         {
+          "continuationItemRenderer": {
+           "continuationEndpoint": {
+            "continuationCommand": {
+             "token": "fixture-continuation-token"
+            }
+           }
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}

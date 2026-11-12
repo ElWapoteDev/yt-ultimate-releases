@@ -1,0 +1,20 @@
+[package]
+name = "yt-plugins"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Opt-in, resource-limited Rust/WebAssembly plugins for YT Ultimate"
+
+[dependencies]
+yt-core = { path = "../yt-core" }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+wasmi = { version = "2.0.0", default-features = false, features = ["std", "validate", "portable-dispatch"] }
+
+[dev-dependencies]
+tempfile = "3"
+wat = "1"

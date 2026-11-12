@@ -1,0 +1,141 @@
+{
+ "contents": {
+  "singleColumnMusicWatchNextResultsRenderer": {
+   "tabbedRenderer": {
+    "watchNextTabbedResultsRenderer": {
+     "tabs": [
+      {
+       "tabRenderer": {
+        "content": {
+         "musicQueueRenderer": {
+          "content": {
+           "playlistPanelRenderer": {
+            "contents": [
+             {
+              "playlistPanelVideoRenderer": {
+               "title": {
+                "runs": [
+                 {
+                  "text": "Title 31"
+                 }
+                ]
+               },
+               "longBylineText": {
+                "runs": [
+                 {
+                  "text": "Artist 11",
+                  "navigationEndpoint": {
+                   "browseEndpoint": {
+                    "browseId": "UCfixtureChannel00000011",
+                    "browseEndpointContextSupportedConfigs": {
+                     "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                     }
+                    }
+                   }
+                  }
+                 },
+                 {
+                  "text": " y "
+                 },
+                 {
+                  "text": "Artist 12",
+                  "navigationEndpoint": {
+                   "browseEndpoint": {
+                    "browseId": "UCfixtureChannel00000012",
+                    "browseEndpointContextSupportedConfigs": {
+                     "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                     }
+                    }
+                   }
+                  }
+                 },
+                 {
+                  "text": " • "
+                 },
+                 {
+                  "text": "Album 16",
+                  "navigationEndpoint": {
+                   "browseEndpoint": {
+                    "browseId": "MPREb_fixt0000008",
+                    "browseEndpointContextSupportedConfigs": {
+                     "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                     }
+                    }
+                   }
+                  }
+                 },
+                 {
+                  "text": " • "
+                 },
+                 {
+                  "text": "1994"
+                 }
+                ]
+               },
+               "thumbnail": {
+                "thumbnails": [
+                 {
+                  "url": "https://yt3.googleusercontent.com/fixtureImage019=w302-h302-l90-rj",
+                  "width": 302
+                 },
+                 {
+                  "url": "https://yt3.googleusercontent.com/fixtureImage019=w544-h544-l90-rj",
+                  "width": 544
+                 }
+                ]
+               },
+               "lengthText": {
+                "runs": [
+                 {
+                  "text": "7:25"
+                 }
+                ]
+               },
+               "navigationEndpoint": {
+                "watchEndpoint": {
+                 "videoId": "fixture0019",
+                 "watchEndpointMusicSupportedConfigs": {
+                  "watchEndpointMusicConfig": {
+                   "hasPersistentPlaylistPanel": true,
+                   "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                  }
+                 }
+                }
+               },
+               "videoId": "fixture0019",
+               "shortBylineText": {
+                "runs": [
+                 {
+                  "text": "Title 32"
+                 },
+                 {
+                  "text": " y "
+                 },
+                 {
+                  "text": "Title 33"
+                 }
+                ]
+               }
+              }
+             }
+            ]
+           }
+          }
+         }
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "currentVideoEndpoint": {
+  "watchEndpoint": {
+   "videoId": "fixture0019"
+  }
+ }
+}

@@ -1,0 +1,1343 @@
+{
+ "contents": {
+  "singleColumnBrowseResultsRenderer": {
+   "tabs": [
+    {
+     "tabRenderer": {
+      "content": {
+       "sectionListRenderer": {
+        "contents": [
+         {
+          "musicShelfRenderer": {
+           "title": {
+            "runs": [
+             {
+              "text": "Canciones más populares",
+              "navigationEndpoint": {
+               "browseEndpoint": {
+                "browseId": "VLOLAK5uy_fixtureAlbum000000000000000000003",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                 }
+                }
+               }
+              }
+             }
+            ]
+           },
+           "contents": [
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage002=w60-h60-l90-rj",
+                   "width": 60
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage002=w120-h120-l90-rj",
+                   "width": 120
+                  }
+                 ]
+                }
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "fixture0001",
+                    "playlistId": "OLAK5uy_fixtureAlbum000000000000000000003",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Title 1",
+                    "navigationEndpoint": {
+                     "watchEndpoint": {
+                      "videoId": "fixture0001",
+                      "playlistId": "OLAK5uy_fixtureAlbum000000000000000000003",
+                      "watchEndpointMusicSupportedConfigs": {
+                       "watchEndpointMusicConfig": {
+                        "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Artist 1",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UCfixtureChannel00000001",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                       }
+                      }
+                     }
+                    }
+                   },
+                   {
+                    "text": " y "
+                   },
+                   {
+                    "text": "Artist 6",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UCfixtureChannel00000006",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "947 M reproducciones"
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Album 4",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "MPREb_fixt0000002",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               }
+              ],
+              "playlistItemData": {
+               "videoId": "fixture0001"
+              }
+             }
+            },
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage010=w60-h60-l90-rj",
+                   "width": 60
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage010=w120-h120-l90-rj",
+                   "width": 120
+                  }
+                 ]
+                }
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "fixture0006",
+                    "playlistId": "OLAK5uy_fixtureAlbum000000000000000000003",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Title 15",
+                    "navigationEndpoint": {
+                     "watchEndpoint": {
+                      "videoId": "fixture0006",
+                      "playlistId": "OLAK5uy_fixtureAlbum000000000000000000003",
+                      "watchEndpointMusicSupportedConfigs": {
+                       "watchEndpointMusicConfig": {
+                        "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Artist 1",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UCfixtureChannel00000001",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                       }
+                      }
+                     }
+                    }
+                   },
+                   {
+                    "text": " y "
+                   },
+                   {
+                    "text": "Artist 2",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UCfixtureChannel00000002",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "327 M reproducciones"
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Album 5",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "MPREb_fixt0000003",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               }
+              ],
+              "playlistItemData": {
+               "videoId": "fixture0006"
+              }
+             }
+            },
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage005=w60-h60-l90-rj",
+                   "width": 60
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage005=w120-h120-l90-rj",
+                   "width": 120
+                  }
+                 ]
+                }
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "fixture0007",
+                    "playlistId": "OLAK5uy_fixtureAlbum000000000000000000003",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Title 16",
+                    "navigationEndpoint": {
+                     "watchEndpoint": {
+                      "videoId": "fixture0007",
+                      "playlistId": "OLAK5uy_fixtureAlbum000000000000000000003",
+                      "watchEndpointMusicSupportedConfigs": {
+                       "watchEndpointMusicConfig": {
+                        "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Artist 1",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UCfixtureChannel00000001",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "1106 M reproducciones"
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Album 2",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "MPREb_fixt0000001",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               }
+              ],
+              "playlistItemData": {
+               "videoId": "fixture0007"
+              }
+             }
+            }
+           ]
+          }
+         },
+         {
+          "musicCarouselShelfRenderer": {
+           "header": {
+            "musicCarouselShelfBasicHeaderRenderer": {
+             "title": {
+              "runs": [
+               {
+                "text": "Álbumes"
+               }
+              ]
+             }
+            }
+           },
+           "contents": [
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage011=w226-h226-l90-rj",
+                   "width": 226
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage011=w544-h544-l90-rj",
+                   "width": 544
+                  }
+                 ]
+                }
+               }
+              },
+              "title": {
+               "runs": [
+                {
+                 "text": "Album 6",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "MPREb_fixt0000004",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "2026"
+                }
+               ]
+              },
+              "navigationEndpoint": {
+               "browseEndpoint": {
+                "browseId": "MPREb_fixt0000004",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                 }
+                }
+               }
+              },
+              "thumbnailOverlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchPlaylistEndpoint": {
+                    "playlistId": "OLAK5uy_fixtureAlbum000000000000000000007"
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            },
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage010=w226-h226-l90-rj",
+                   "width": 226
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage010=w544-h544-l90-rj",
+                   "width": 544
+                  }
+                 ]
+                }
+               }
+              },
+              "title": {
+               "runs": [
+                {
+                 "text": "Album 5",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "MPREb_fixt0000003",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "2025"
+                }
+               ]
+              },
+              "navigationEndpoint": {
+               "browseEndpoint": {
+                "browseId": "MPREb_fixt0000003",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                 }
+                }
+               }
+              },
+              "thumbnailOverlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchPlaylistEndpoint": {
+                    "playlistId": "OLAK5uy_fixtureAlbum000000000000000000008"
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            }
+           ]
+          }
+         },
+         {
+          "musicCarouselShelfRenderer": {
+           "header": {
+            "musicCarouselShelfBasicHeaderRenderer": {
+             "title": {
+              "runs": [
+               {
+                "text": "Sencillos y EP",
+                "navigationEndpoint": {
+                 "browseEndpoint": {
+                  "browseId": "MPADUCfixtureChannel00000001",
+                  "browseEndpointContextSupportedConfigs": {
+                   "browseEndpointContextMusicConfig": {
+                    "pageType": "MUSIC_PAGE_TYPE_ARTIST_DISCOGRAPHY"
+                   }
+                  }
+                 }
+                }
+               }
+              ]
+             }
+            }
+           },
+           "contents": [
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage012=w226-h226-l90-rj",
+                   "width": 226
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage012=w544-h544-l90-rj",
+                   "width": 544
+                  }
+                 ]
+                }
+               }
+              },
+              "title": {
+               "runs": [
+                {
+                 "text": "Album 9",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "MPREb_fixt0000005",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "Sencillo"
+                },
+                {
+                 "text": " • "
+                },
+                {
+                 "text": "2026"
+                }
+               ]
+              },
+              "navigationEndpoint": {
+               "browseEndpoint": {
+                "browseId": "MPREb_fixt0000005",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                 }
+                }
+               }
+              },
+              "thumbnailOverlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchPlaylistEndpoint": {
+                    "playlistId": "OLAK5uy_fixtureAlbum000000000000000000010"
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            },
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage013=w226-h226-l90-rj",
+                   "width": 226
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage013=w544-h544-l90-rj",
+                   "width": 544
+                  }
+                 ]
+                }
+               }
+              },
+              "title": {
+               "runs": [
+                {
+                 "text": "Album 11",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "MPREb_fixt0000006",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "Sencillo"
+                },
+                {
+                 "text": " • "
+                },
+                {
+                 "text": "2026"
+                }
+               ]
+              },
+              "navigationEndpoint": {
+               "browseEndpoint": {
+                "browseId": "MPREb_fixt0000006",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                 }
+                }
+               }
+              },
+              "thumbnailOverlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchPlaylistEndpoint": {
+                    "playlistId": "OLAK5uy_fixtureAlbum000000000000000000012"
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            }
+           ]
+          }
+         },
+         {
+          "musicCarouselShelfRenderer": {
+           "header": {
+            "musicCarouselShelfBasicHeaderRenderer": {
+             "title": {
+              "runs": [
+               {
+                "text": "Videos",
+                "navigationEndpoint": {
+                 "browseEndpoint": {
+                  "browseId": "VLOLAK5uy_fixtureAlbum000000000000000000013",
+                  "browseEndpointContextSupportedConfigs": {
+                   "browseEndpointContextMusicConfig": {
+                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                   }
+                  }
+                 }
+                }
+               }
+              ]
+             }
+            }
+           },
+           "contents": [
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/fixture0008/hqdefault.jpg",
+                   "width": 400
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/fixture0008/hq720.jpg",
+                   "width": 800
+                  }
+                 ]
+                }
+               }
+              },
+              "title": {
+               "runs": [
+                {
+                 "text": "Title 1"
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "Artist 1",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "UCfixtureChannel00000001",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                   }
+                  }
+                 }
+                },
+                {
+                 "text": " y "
+                },
+                {
+                 "text": "Artist 6",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "UCfixtureChannel00000006",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                   }
+                  }
+                 }
+                },
+                {
+                 "text": " • "
+                },
+                {
+                 "text": "523 M de vistas"
+                }
+               ]
+              },
+              "navigationEndpoint": {
+               "watchEndpoint": {
+                "videoId": "fixture0008",
+                "playlistId": "OLAK5uy_fixtureAlbum000000000000000000013",
+                "watchEndpointMusicSupportedConfigs": {
+                 "watchEndpointMusicConfig": {
+                  "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                 }
+                }
+               }
+              },
+              "thumbnailOverlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "fixture0008",
+                    "playlistId": "OLAK5uy_fixtureAlbum000000000000000000013",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            },
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/fixture0009/hqdefault.jpg",
+                   "width": 400
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/fixture0009/hq720.jpg",
+                   "width": 800
+                  }
+                 ]
+                }
+               }
+              },
+              "title": {
+               "runs": [
+                {
+                 "text": "Title 15"
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "Artist 1",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "UCfixtureChannel00000001",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                   }
+                  }
+                 }
+                },
+                {
+                 "text": " y "
+                },
+                {
+                 "text": "Artist 2",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "UCfixtureChannel00000002",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                   }
+                  }
+                 }
+                },
+                {
+                 "text": " • "
+                },
+                {
+                 "text": "172 M de vistas"
+                }
+               ]
+              },
+              "navigationEndpoint": {
+               "watchEndpoint": {
+                "videoId": "fixture0009",
+                "playlistId": "OLAK5uy_fixtureAlbum000000000000000000013",
+                "watchEndpointMusicSupportedConfigs": {
+                 "watchEndpointMusicConfig": {
+                  "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                 }
+                }
+               }
+              },
+              "thumbnailOverlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "fixture0009",
+                    "playlistId": "OLAK5uy_fixtureAlbum000000000000000000013",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            }
+           ]
+          }
+         },
+         {
+          "musicCarouselShelfRenderer": {
+           "header": {
+            "musicCarouselShelfBasicHeaderRenderer": {
+             "title": {
+              "runs": [
+               {
+                "text": "Aparece en"
+               }
+              ]
+             }
+            }
+           },
+           "contents": [
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage014=w226-h226-l90-rj",
+                   "width": 226
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage014=w544-h544-l90-rj",
+                   "width": 544
+                  }
+                 ]
+                }
+               }
+              },
+              "title": {
+               "runs": [
+                {
+                 "text": "Playlist 4",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "VLRDCLAK5uy_fixtureMix000000000000000000002",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "Playlist"
+                },
+                {
+                 "text": " • "
+                },
+                {
+                 "text": "Title 7"
+                }
+               ]
+              },
+              "navigationEndpoint": {
+               "browseEndpoint": {
+                "browseId": "VLRDCLAK5uy_fixtureMix000000000000000000002",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                 }
+                }
+               }
+              },
+              "thumbnailOverlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchPlaylistEndpoint": {
+                    "playlistId": "RDCLAK5uy_fixtureMix000000000000000000002"
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            },
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage015=w226-h226-l90-rj",
+                   "width": 226
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage015=w544-h544-l90-rj",
+                   "width": 544
+                  }
+                 ]
+                }
+               }
+              },
+              "title": {
+               "runs": [
+                {
+                 "text": "Playlist 5",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "VLRDCLAK5uy_fixtureMix000000000000000000003",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "Playlist"
+                },
+                {
+                 "text": " • "
+                },
+                {
+                 "text": "Title 7"
+                }
+               ]
+              },
+              "navigationEndpoint": {
+               "browseEndpoint": {
+                "browseId": "VLRDCLAK5uy_fixtureMix000000000000000000003",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                 }
+                }
+               }
+              },
+              "thumbnailOverlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchPlaylistEndpoint": {
+                    "playlistId": "RDCLAK5uy_fixtureMix000000000000000000003"
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            }
+           ]
+          }
+         },
+         {
+          "musicCarouselShelfRenderer": {
+           "header": {
+            "musicCarouselShelfBasicHeaderRenderer": {
+             "title": {
+              "runs": [
+               {
+                "text": "A los fans también podría gustarles"
+               }
+              ]
+             }
+            }
+           },
+           "contents": [
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage016=w226-h226-p-l90-rj",
+                   "width": 226
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/fixtureImage016=w544-h544-p-l90-rj",
+                   "width": 544
+                  }
+                 ]
+                }
+               }
+              },
+              "title": {
+               "runs": [
+                {
+                 "text": "Artist 7",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "UCfixtureChannel00000007",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "Público mensual: 11.3 M usuarios"
+                }
+               ]
+              },
+              "navigationEndpoint": {
+               "browseEndpoint": {
+                "browseId": "UCfixtureChannel00000007",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                 }
+                }
+               }
+              }
+             }
+            },
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://lh3.googleusercontent.com/fixtureImage017=w226-h226-p-l90-rj",
+                   "width": 226
+                  },
+                  {
+                   "url": "https://lh3.googleusercontent.com/fixtureImage017=w544-h544-p-l90-rj",
+                   "width": 544
+                  }
+                 ]
+                }
+               }
+              },
+              "title": {
+               "runs": [
+                {
+                 "text": "Artist 8",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "UCfixtureChannel00000008",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "Público mensual: 22.4 M usuarios"
+                }
+               ]
+              },
+              "navigationEndpoint": {
+               "browseEndpoint": {
+                "browseId": "UCfixtureChannel00000008",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                 }
+                }
+               }
+              }
+             }
+            }
+           ]
+          }
+         },
+         {
+          "musicDescriptionShelfRenderer": {
+           "header": {
+            "runs": [
+             {
+              "text": "Más información"
+             }
+            ]
+           },
+           "description": {
+            "runs": [
+             {
+              "text": "Full biography of Artist 1.\nSecond paragraph."
+             }
+            ]
+           },
+           "subheader": {
+            "runs": [
+             {
+              "text": "1,234 vistas"
+             }
+            ]
+           }
+          }
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ "header": {
+  "musicImmersiveHeaderRenderer": {
+   "title": {
+    "runs": [
+     {
+      "text": "Artist 1"
+     }
+    ]
+   },
+   "subscriptionButton": {
+    "subscribeButtonRenderer": {
+     "longSubscriberCountText": {
+      "runs": [
+       {
+        "text": "9.51 M de suscriptores"
+       }
+      ]
+     }
+    }
+   },
+   "description": {
+    "runs": [
+     {
+      "text": "Short header biography of Artist 1…"
+     }
+    ]
+   },
+   "thumbnail": {
+    "musicThumbnailRenderer": {
+     "thumbnail": {
+      "thumbnails": [
+       {
+        "url": "https://lh3.googleusercontent.com/fixtureImage001=w1920-h800-p-l90-rj",
+        "width": 1920
+       },
+       {
+        "url": "https://lh3.googleusercontent.com/fixtureImage001=w2880-h1200-p-l90-rj",
+        "width": 2880
+       }
+      ]
+     }
+    }
+   }
+  }
+ },
+ "microformat": {
+  "microformatDataRenderer": {
+   "thumbnail": {
+    "thumbnails": [
+     {
+      "url": "https://lh3.googleusercontent.com/fixtureImage001=w544-h544-p-l90-rj",
+      "width": 544
+     }
+    ]
+   }
+  }
+ }
+}

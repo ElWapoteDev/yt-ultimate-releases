@@ -1,0 +1,157 @@
+{
+  "api_version": 1,
+  "author": "YT Ultimate",
+  "config_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "emit_summary_events": {
+        "default": false,
+        "description": "Emite resúmenes con un evento propio al completar hitos importantes.",
+        "title": "Emitir eventos de resumen",
+        "type": "boolean"
+      },
+      "events": {
+        "default": [
+          "app.started",
+          "app.stopping",
+          "download.queued",
+          "download.progress",
+          "download.media_ready",
+          "playlist.queued",
+          "playlist.progress",
+          "processing.stems.queued",
+          "processing.stems.progress",
+          "processing.stems.ready",
+          "processing.fingerprint.queued",
+          "processing.fingerprint.progress",
+          "processing.fingerprint.ready"
+        ],
+        "description": "Eventos estables de la aplicación que se guardan en el journal.",
+        "items": {
+          "enum": [
+            "app.started",
+            "app.stopping",
+            "download.queued",
+            "download.progress",
+            "download.media_ready",
+            "playlist.queued",
+            "playlist.progress",
+            "processing.stems.queued",
+            "processing.stems.progress",
+            "processing.stems.ready",
+            "processing.fingerprint.queued",
+            "processing.fingerprint.progress",
+            "processing.fingerprint.ready"
+          ],
+          "type": "string"
+        },
+        "maxItems": 13,
+        "minItems": 0,
+        "title": "Eventos registrados",
+        "type": "array"
+      },
+      "include_payload": {
+        "default": true,
+        "description": "Incluye el payload redactado de cada evento en el JSONL.",
+        "title": "Incluir payload",
+        "type": "boolean"
+      },
+      "max_entries": {
+        "default": 5000,
+        "description": "Número máximo de entradas conservadas en el journal.",
+        "maximum": 50000,
+        "minimum": 100,
+        "title": "Retención máxima",
+        "type": "integer"
+      },
+      "progress_step": {
+        "default": 5,
+        "description": "Incremento porcentual mínimo para guardar download.progress.",
+        "maximum": 100,
+        "minimum": 0.5,
+        "title": "Paso de progreso",
+        "type": "number"
+      },
+      "redact_keys": {
+        "default": [
+          "authorization",
+          "cookie",
+          "cookies",
+          "password",
+          "passwd",
+          "token",
+          "access_token",
+          "refresh_token",
+          "auth_token",
+          "api_key",
+          "secret",
+          "client_secret"
+        ],
+        "description": "Claves, comparadas sin distinguir mayúsculas, cuyo valor se reemplaza recursivamente.",
+        "items": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 64,
+        "minItems": 0,
+        "title": "Claves redactadas",
+        "type": "array"
+      }
+    },
+    "required": [
+      "emit_summary_events",
+      "events",
+      "include_payload",
+      "max_entries",
+      "progress_step",
+      "redact_keys"
+    ],
+    "type": "object"
+  },
+  "default_config": {
+    "emit_summary_events": false,
+    "events": [
+      "app.started",
+      "app.stopping",
+      "download.queued",
+      "download.progress",
+      "download.media_ready",
+      "playlist.queued",
+      "playlist.progress",
+      "processing.stems.queued",
+      "processing.stems.progress",
+      "processing.stems.ready",
+      "processing.fingerprint.queued",
+      "processing.fingerprint.progress",
+      "processing.fingerprint.ready"
+    ],
+    "include_payload": true,
+    "max_entries": 5000,
+    "progress_step": 5,
+    "redact_keys": [
+      "authorization",
+      "cookie",
+      "cookies",
+      "password",
+      "passwd",
+      "token",
+      "access_token",
+      "refresh_token",
+      "auth_token",
+      "api_key",
+      "secret",
+      "client_secret"
+    ]
+  },
+  "description": "Journal avanzado, configurable y privado para eventos de descargas y procesamiento.",
+  "entrypoint": "plugin.py:setup",
+  "homepage": "",
+  "id": "dev.ytultimate.workflow-journal",
+  "license": "MIT",
+  "manifest_version": 1,
+  "name": "Workflow Journal",
+  "permissions": [],
+  "version": "1.0.0",
+  "x-example-level": "advanced"
+}

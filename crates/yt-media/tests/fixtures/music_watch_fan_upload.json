@@ -1,0 +1,109 @@
+{
+ "contents": {
+  "singleColumnMusicWatchNextResultsRenderer": {
+   "tabbedRenderer": {
+    "watchNextTabbedResultsRenderer": {
+     "tabs": [
+      {
+       "tabRenderer": {
+        "content": {
+         "musicQueueRenderer": {
+          "content": {
+           "playlistPanelRenderer": {
+            "contents": [
+             {
+              "playlistPanelVideoRenderer": {
+               "title": {
+                "runs": [
+                 {
+                  "text": "Title 38"
+                 }
+                ]
+               },
+               "longBylineText": {
+                "runs": [
+                 {
+                  "text": "Artist 15",
+                  "navigationEndpoint": {
+                   "browseEndpoint": {
+                    "browseId": "UCfixtureChannel00000015",
+                    "browseEndpointContextSupportedConfigs": {
+                     "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                     }
+                    }
+                   }
+                  }
+                 },
+                 {
+                  "text": " • "
+                 },
+                 {
+                  "text": "449 k vistas"
+                 },
+                 {
+                  "text": " • "
+                 },
+                 {
+                  "text": "Title 39"
+                 }
+                ]
+               },
+               "thumbnail": {
+                "thumbnails": [
+                 {
+                  "url": "https://i.ytimg.com/vi/fixture0021/hq720.jpg",
+                  "width": 800
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/fixture0021/hq720.jpg",
+                  "width": 853
+                 }
+                ]
+               },
+               "lengthText": {
+                "runs": [
+                 {
+                  "text": "3:48"
+                 }
+                ]
+               },
+               "navigationEndpoint": {
+                "watchEndpoint": {
+                 "videoId": "fixture0021",
+                 "watchEndpointMusicSupportedConfigs": {
+                  "watchEndpointMusicConfig": {
+                   "hasPersistentPlaylistPanel": true,
+                   "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                  }
+                 }
+                }
+               },
+               "videoId": "fixture0021",
+               "shortBylineText": {
+                "runs": [
+                 {
+                  "text": "Title 40"
+                 }
+                ]
+               }
+              }
+             }
+            ]
+           }
+          }
+         }
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "currentVideoEndpoint": {
+  "watchEndpoint": {
+   "videoId": "fixture0021"
+  }
+ }
+}

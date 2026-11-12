@@ -1,0 +1,97 @@
+{
+  "contents": {
+    "twoColumnWatchNextResults": {
+      "results": {
+        "results": {
+          "contents": [
+            { "ticketShelfRenderer": {} },
+            {
+              "videoPrimaryInfoRenderer": {
+                "title": { "runs": [{ "text": "Artist - Song Title ft. Guest" }] }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "engagementPanels": [
+    {
+      "engagementPanelSectionListRenderer": {
+        "panelIdentifier": "engagement-panel-comments-section",
+        "content": { "sectionListRenderer": { "contents": [] } }
+      }
+    },
+    {
+      "engagementPanelSectionListRenderer": {
+        "panelIdentifier": "engagement-panel-structured-description",
+        "targetId": "engagement-panel-structured-description",
+        "content": {
+          "structuredDescriptionContentRenderer": {
+            "items": [
+              {
+                "videoTitleHeaderViewModel": {
+                  "videoTitle": { "content": "Artist - Song Title ft. Guest" },
+                  "headerButton": {
+                    "buttonViewModel": { "iconName": "CLOSE", "accessibilityText": "Cerrar" }
+                  }
+                }
+              },
+              {
+                "videoDescriptionHeaderRenderer": {
+                  "channel": { "simpleText": "Artist" },
+                  "views": { "simpleText": "1.000 visualizaciones" },
+                  "publishDate": { "simpleText": "1 ene 2020" }
+                }
+              },
+              {
+                "expandableVideoDescriptionBodyRenderer": {
+                  "attributedDescriptionBodyText": { "content": "Video description placeholder" }
+                }
+              },
+              {
+                "horizontalCardListRenderer": {
+                  "header": {
+                    "richListHeaderRenderer": {
+                      "title": { "simpleText": "Música" },
+                      "subtitle": { "simpleText": "1 canción" }
+                    }
+                  },
+                  "style": { "type": "HORIZONTAL_CARD_LIST_STYLE_TYPE_ENGAGEMENT_PANEL_SECTION" },
+                  "cards": [
+                    {
+                      "videoAttributeViewModel": {
+                        "image": {
+                          "sources": [
+                            { "url": "https://yt3.googleusercontent.com/albumCoverPlaceholder" }
+                          ]
+                        },
+                        "imageStyle": "VIDEO_ATTRIBUTE_IMAGE_STYLE_SQUARE",
+                        "title": "Song Title",
+                        "subtitle": "Artist",
+                        "secondarySubtitle": { "content": "Album Title" },
+                        "orientation": "VIDEO_ATTRIBUTE_ORIENTATION_HORIZONTAL",
+                        "sizingRule": "VIDEO_ATTRIBUTE_SIZING_RULE_RESPONSIVE"
+                      }
+                    }
+                  ],
+                  "footerButton": {
+                    "buttonViewModel": {
+                      "iconName": "MUSIC",
+                      "titleFormatted": { "content": "Música" }
+                    }
+                  }
+                }
+              },
+              {
+                "videoDescriptionTranscriptSectionRenderer": {
+                  "sectionTitle": { "runs": [{ "text": "Transcripción" }] }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

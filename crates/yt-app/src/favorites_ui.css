@@ -1,0 +1,119 @@
+/* Favorites: heart button (used app-wide) and the Favorites page hero. */
+
+.favorite-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color 160ms var(--ease-out), transform 160ms var(--ease-out), background 160ms var(--ease-out);
+}
+
+.favorite-button:hover {
+  color: var(--text-primary);
+  background: var(--hover-fill);
+}
+
+.favorite-button:active {
+  transform: scale(0.88);
+}
+
+.favorite-button--on,
+.favorite-button--on:hover {
+  color: var(--accent);
+}
+
+.favorite-button--on svg {
+  animation: favorite-pop 260ms var(--ease-out);
+}
+
+@keyframes favorite-pop {
+  0% { transform: scale(0.7); }
+  60% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+.row .favorite-button {
+  opacity: 0;
+}
+
+.row:hover .favorite-button,
+.row .favorite-button--on,
+.row .favorite-button:focus-visible {
+  opacity: 1;
+}
+
+.card-favorite {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: var(--accent);
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.favorites-hero {
+  display: flex;
+  align-items: flex-end;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+.favorites-hero__art {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 168px;
+  height: 168px;
+  border-radius: var(--radius-lg);
+  color: var(--on-accent);
+  background: linear-gradient(140deg, var(--accent-hover), var(--accent) 55%, color-mix(in oklab, var(--accent) 55%, black));
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.favorites-hero__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.favorites-hero__eyebrow {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.favorites-hero__title {
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.favorites-hero__sub {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.favorites-hero__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .favorite-button--on svg { animation: none; }
+}
