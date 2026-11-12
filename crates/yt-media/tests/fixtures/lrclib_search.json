@@ -1,0 +1,77 @@
+[
+  {
+    "id": 1001,
+    "name": "Example Song",
+    "trackName": "Example Song",
+    "artistName": "Example Artist",
+    "albumName": "Example Album",
+    "duration": 244.0,
+    "instrumental": false,
+    "plainLyrics": "First synced line\nSecond synced line",
+    "syncedLyrics": "[00:08.70] First synced line\n[00:10.99] Second synced line\n[00:12.75] ",
+    "lyricsfile": "version: '1.0'\nmetadata:\n  title: Example Song\n",
+    "hasWordSync": false
+  },
+  {
+    "id": 1002,
+    "name": "Example Song",
+    "trackName": "Example Song",
+    "artistName": "Example Artist",
+    "albumName": null,
+    "duration": 271.736438,
+    "instrumental": false,
+    "plainLyrics": "Only plain words",
+    "syncedLyrics": null,
+    "hasWordSync": false
+  },
+  {
+    "id": 1003,
+    "trackName": "Example Interlude",
+    "artistName": "Example Artist",
+    "albumName": "Example Album",
+    "duration": 61,
+    "instrumental": true,
+    "plainLyrics": null,
+    "syncedLyrics": null
+  },
+  {
+    "id": 1004,
+    "trackName": null,
+    "artistName": "Nameless",
+    "duration": 100.0,
+    "plainLyrics": "Has no title"
+  },
+  {
+    "id": 1005,
+    "trackName": "Wrong Types",
+    "artistName": "Example Artist",
+    "duration": "two minutes",
+    "plainLyrics": "Dropped"
+  },
+  {
+    "id": 1006,
+    "name": "Example Song",
+    "trackName": "Example Song",
+    "artistName": "Example Artist",
+    "albumName": "Example Album",
+    "duration": 244.0,
+    "instrumental": false,
+    "plainLyrics": "First synced line\nSecond synced line",
+    "syncedLyrics": "[00:09.10] First synced line\n[00:11.40] Second synced line\n[00:13.00] ",
+    "lyricsfile": "version: '1.0'\nmetadata:\n  title: Example Song\n  artist: Example Artist\n  album: Example Album\n  duration_ms: 244000\n  instrumental: false\n  language: en\nlines:\n- text: First synced line\n  start_ms: 8700\n  end_ms: 10600\n  words:\n  - text: 'First '\n    start_ms: 8700\n  - text: 'synced '\n    start_ms: 9200\n  - text: line\n    start_ms: 9900\n- text: Second synced line\n  start_ms: 10990\n  end_ms: 12500\n  words:\n  - text: 'Second '\n    start_ms: 10990\n  - text: 'synced '\n    start_ms: 11500\n  - text: line\n    start_ms: 12000\nplain: |\n  First synced line\n  Second synced line\n",
+    "hasWordSync": true
+  },
+  {
+    "id": 1007,
+    "name": "Example Song",
+    "trackName": "Example Song",
+    "artistName": "Example Artist",
+    "albumName": "Example Album",
+    "duration": 245.0,
+    "instrumental": false,
+    "plainLyrics": "First synced line",
+    "syncedLyrics": "[00:08.70] First synced line\n[00:10.00] ",
+    "lyricsfile": "version: '9.9'\nlines:\n- text: First synced line\n  start_ms: 8700\n  words:\n  - text: First synced line\n    start_ms: 8700\n",
+    "hasWordSync": true
+  }
+]

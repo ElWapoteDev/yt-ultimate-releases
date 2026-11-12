@@ -1,0 +1,32 @@
+/* Autoplay block inside the queue panel. */
+
+.queue-autoplay {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 0.5px solid var(--border-subtle);
+}
+
+.queue-autoplay__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 6px;
+}
+
+.queue-autoplay__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.queue-autoplay__hint {
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+
+.queue-autoplay .settings-switch {
+  flex: none;
+  cursor: pointer;
+}

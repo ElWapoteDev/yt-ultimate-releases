@@ -1,6 +1,9 @@
 //! Durable download jobs. Signed URLs and connection credentials stay in memory;
 //! all partial media remains outside the managed library.
-use crate::state::{download_view, AppState};
+use crate::{
+    activity::Tone,
+    state::{download_view, AppState, Page},
+};
 use dioxus::prelude::*;
 use serde_json::{json, Value};
 use std::{
@@ -200,7 +203,7 @@ impl AppState {
         let playlist = match playlist {
             Ok(p) => p,
             Err(e) => {
-                self.notify(e.to_string());
+                self.notify_error(e.to_string());
                 return;
             }
         };
@@ -223,16 +226,20 @@ impl AppState {
             );
         }
         self.refresh();
-        self.notify(format!(
-            "{} descargas añadidas a {}{}",
-            order.len(),
-            playlist.name,
-            if duplicates > 0 {
-                format!("; {duplicates} repetidos se reutilizan")
-            } else {
-                String::new()
-            }
-        ));
+        self.announce(
+            Tone::Info,
+            format!(
+                "{} descargas añadidas a {}{}",
+                order.len(),
+                playlist.name,
+                if duplicates > 0 {
+                    format!("; {duplicates} repetidos se reutilizan")
+                } else {
+                    String::new()
+                }
+            ),
+            Some(Page::Downloads),
+        );
     }
     /// Retains committed ranges. Reintentar creates a new history row that uses
     /// the same cache even after the application has restarted.
@@ -255,7 +262,7 @@ impl AppState {
             .jobs_for_download_cache(&original_cache)
             .is_ok_and(|jobs| jobs.iter().any(|j| !j.status.is_terminal()))
         {
-            self.notify("Esta descarga ya está en la cola");
+            self.notify_warning("Esta descarga ya está en la cola");
             return;
         }
         let item = item_from_payload(&job.payload);
@@ -279,7 +286,7 @@ impl AppState {
                 let mut rows = self.downloads;
                 rows.write().retain(|row| row.id != id);
             }
-            Err(error) => self.notify(error),
+            Err(error) => self.notify_error(error),
         }
     }
     /// Active jobs are interrupted first; cleanup occurs after their writer has
@@ -302,7 +309,7 @@ impl AppState {
                 &result,
                 "",
             ) {
-                self.notify(e);
+                self.notify_error(e);
                 return;
             }
             self.pause_download(id);
@@ -315,7 +322,7 @@ impl AppState {
             .jobs_for_download_cache(&cache_key)
             .is_ok_and(|jobs| jobs.iter().any(|j| !j.status.is_terminal()))
         {
-            self.notify("La descarga parcial está siendo usada por otro intento");
+            self.notify_warning("La descarga parcial está siendo usada por otro intento");
             return;
         }
         match remove_cache(
@@ -333,7 +340,7 @@ impl AppState {
                     "",
                 );
             }
-            Err(error) => self.notify(error),
+            Err(error) => self.notify_error(error),
         }
     }
     fn enqueue_download(
@@ -347,7 +354,7 @@ impl AppState {
         let url = match yt_media::canonical_video_url(&item.url) {
             Ok(v) => v,
             Err(e) => {
-                self.notify(e.to_string());
+                self.notify_error(e.to_string());
                 return;
             }
         };
@@ -362,7 +369,7 @@ impl AppState {
             video,
             if video { &prefs.video_quality } else { "192" },
         ) {
-            self.notify(error);
+            self.notify_error(error);
             return;
         }
         let payload = json!({"url":item.url,"title":item.title,"video":video,"thumbnail":item.thumbnail,"channel":item.channel,"media_id":item.id,
@@ -371,7 +378,7 @@ impl AppState {
         let job = match self.services.core.create_job("download", &payload) {
             Ok(j) => j,
             Err(e) => {
-                self.notify(format!("No se pudo iniciar la descarga: {e}"));
+                self.notify_error(format!("No se pudo iniciar la descarga: {e}"));
                 return;
             }
         };
@@ -381,6 +388,14 @@ impl AppState {
         let cancel = CancellationToken::new();
         s.cancellations.write().insert(id.clone(), cancel.clone());
         s.downloads.write().insert(0, download_view(&job));
+        // A playlist announces its batch once; single downloads confirm each click.
+        if playlist.is_none() {
+            s.announce(
+                Tone::Info,
+                format!("Descargando «{}»", item.title),
+                Some(Page::Downloads),
+            );
+        }
         s.plugin_event("download.queued",json!({"job_id":id,"url":item.url,"title":item.title,"video":video,"playlist_id":playlist}));
         dioxus::core::spawn_forever(async move {
             let (updates, mut incoming) = tokio::sync::mpsc::channel(24);
@@ -445,7 +460,7 @@ impl AppState {
                             &ready.track.id,
                             order.as_deref().map(Vec::as_slice),
                         ) {
-                            s.notify(format!("El archivo se guardó, pero no se pudo actualizar la playlist: {error}"));
+                            s.notify_warning(format!("El archivo se guardó, pero no se pudo actualizar la playlist: {error}"));
                         }
                         let complete = s
                             .services
@@ -461,6 +476,20 @@ impl AppState {
                             })
                             .unwrap_or(0);
                         s.plugin_event("playlist.progress",json!({"playlist_id":playlist,"completed":complete,"total":order.as_ref().map(|o|o.len())}));
+                        if order.as_ref().is_some_and(|order| complete == order.len()) {
+                            let name = s
+                                .playlists
+                                .peek()
+                                .iter()
+                                .find(|known| &known.id == playlist)
+                                .map(|known| known.name.clone())
+                                .unwrap_or_else(|| "Playlist".into());
+                            s.announce(
+                                Tone::Success,
+                                format!("Playlist «{name}» descargada: {complete} canciones"),
+                                Some(Page::Playlists),
+                            );
+                        }
                     }
                     let result = json!({"track_id":ready.track.id,"height":ready.height,"audio_bitrate":prefs.audio_quality,"warnings":ready.warnings,"subtitles":ready.subtitle_files});
                     if let Err(e) = s.save_download_progress(
@@ -475,7 +504,7 @@ impl AppState {
                         &result,
                         "",
                     ) {
-                        s.notify(format!(
+                        s.notify_warning(format!(
                             "El archivo se guardó, pero su historial no pudo actualizarse: {e}"
                         ));
                     }
@@ -487,7 +516,21 @@ impl AppState {
                     let _ = remove_cache(&s.services.profile, &cache_key, &s.services.library_dir);
                     s.refresh();
                     if !ready.warnings.is_empty() {
-                        s.notify(format!("Descarga completada. {}", ready.warnings.join(" ")));
+                        s.announce(
+                            Tone::Warning,
+                            format!(
+                                "«{}» se descargó con avisos: {}",
+                                item.title,
+                                ready.warnings.join(" ")
+                            ),
+                            Some(Page::Library),
+                        );
+                    } else if playlist.is_none() {
+                        s.announce(
+                            Tone::Success,
+                            format!("«{}» ya está en tu biblioteca", item.title),
+                            Some(Page::Library),
+                        );
                     }
                 }
                 Err(error) => {
@@ -529,12 +572,26 @@ impl AppState {
                         &json!({"resumable":!discard,"discarded":discard}),
                         if cancel.is_cancelled() { "" } else { &error },
                     ) {
-                        s.notify(e);
+                        s.notify_error(e);
                     }
                     if let Some(e) = cleanup {
-                        s.notify(format!("No se pudo limpiar el parcial: {e}"));
+                        s.notify_error(format!("No se pudo limpiar el parcial: {e}"));
                     } else if !cancel.is_cancelled() {
-                        s.notify(format!("No se pudo descargar: {error}"));
+                        s.announce(
+                            Tone::Error,
+                            format!("No se pudo descargar «{}»: {error}", item.title),
+                            Some(Page::Downloads),
+                        );
+                    } else {
+                        s.announce(
+                            Tone::Info,
+                            if discard {
+                                format!("Descarga descartada: «{}»", item.title)
+                            } else {
+                                format!("Descarga en pausa: «{}»", item.title)
+                            },
+                            Some(Page::Downloads),
+                        );
                     }
                 }
             }
@@ -803,10 +860,14 @@ async fn run_download(
     let mut artwork = None;
     if prefs.thumbnail && prefs.preserve_metadata && !media.thumbnail.is_empty() {
         progress.report(83.0, "Obteniendo carátula");
-        match youtube
-            .fetch_thumbnail(&media.thumbnail, cancel.clone())
-            .await
-        {
+        // Songs embed their album cover; videos keep their own frame.
+        let album_cover = if video {
+            None
+        } else {
+            crate::album_art::download_cover(core, youtube, &media.id, cancel).await
+        };
+        let cover = album_cover.as_deref().unwrap_or(&media.thumbnail);
+        match youtube.fetch_thumbnail(cover, cancel.clone()).await {
             Ok(bytes) => match core.cache_artwork(&bytes) {
                 Ok(path) => artwork = Some((path, bytes)),
                 Err(e) => warnings.push(format!("No se guardó la carátula: {e}")),

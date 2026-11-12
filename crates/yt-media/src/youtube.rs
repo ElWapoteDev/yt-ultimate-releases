@@ -1,4 +1,7 @@
-use crate::{CancellationToken, ConnectionOptions, MediaError, Result};
+use crate::{
+    up_next::{UpNext, UP_NEXT_ITEM_LIMIT},
+    CancellationToken, ConnectionOptions, MediaError, Result,
+};
 use innertube_rs::{
     endpoints::player::resolve_stream_url_full,
     endpoints::playlist::{parse_playlist_browse_response, parse_playlist_continuation_response},
@@ -119,7 +122,7 @@ impl std::fmt::Debug for ResolvedMedia {
 #[derive(Clone, Default)]
 pub struct YoutubeClient {
     client: Arc<OnceCell<Innertube>>,
-    options: Arc<ConnectionOptions>,
+    pub(crate) options: Arc<ConnectionOptions>,
     browser_session: Option<crate::BrowserCookieSession>,
 }
 
@@ -297,7 +300,7 @@ impl YoutubeClient {
         Ok(result)
     }
 
-    async fn client(&self) -> Result<&Innertube> {
+    pub(crate) async fn client(&self) -> Result<&Innertube> {
         self.client
             .get_or_try_init(|| async {
                 tokio::time::timeout(Duration::from_secs(90), async {
@@ -337,42 +340,77 @@ impl YoutubeClient {
     }
 
     pub async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
-        let query = query.trim();
-        if query.is_empty() || query.len() > 2048 || query.chars().any(char::is_control) {
-            return Err(MediaError::InvalidInput(
-                "Escribe una búsqueda válida.".into(),
-            ));
-        }
+        let query = search_text(query)?;
         if canonical_video_url(query).is_ok() {
             return self.metadata(query).await.map(|video| vec![video]);
         }
         let client = self.client().await?;
-        let results = tokio::time::timeout(Duration::from_secs(45), async {
-            use futures_util::StreamExt;
-            let response = client
-                .session
-                .post_innertube("/search", serde_json::json!({"query":query}))
-                .await
-                .map_err(youtube_error)?
-                .error_for_status()
-                .map_err(crate::network_error)?;
-            let mut bytes = Vec::new();
-            let mut body = response.bytes_stream();
-            while let Some(chunk) = body.next().await {
-                let chunk = chunk.map_err(crate::network_error)?;
-                if bytes.len() + chunk.len() > 16 * 1024 * 1024 {
-                    return Err(MediaError::Youtube(
-                        "La respuesta de búsqueda supera el límite admitido.".into(),
-                    ));
-                }
-                bytes.extend_from_slice(&chunk);
-            }
-            serde_json::from_slice(&bytes)
-                .map_err(|_| MediaError::Youtube("La búsqueda no entregó datos válidos.".into()))
-        })
-        .await
-        .map_err(|_| MediaError::Network("La búsqueda tardó demasiado.".into()))??;
+        let results = bounded_innertube_json(
+            client,
+            "/search",
+            serde_json::json!({"query":query}),
+            &SEARCH_REQUEST,
+        )
+        .await?;
         Ok(crate::search::parse_results(&results, limit.clamp(1, 50)))
+    }
+
+    /// Mix and related videos for one video, read from a single watch-next request.
+    pub async fn up_next(
+        &self,
+        input: &str,
+        limit: usize,
+        cancel: CancellationToken,
+    ) -> Result<UpNext> {
+        let id = video_id(input)?;
+        if !(1..=UP_NEXT_ITEM_LIMIT).contains(&limit) {
+            return Err(MediaError::InvalidInput(format!(
+                "El número de recomendaciones debe estar entre 1 y {UP_NEXT_ITEM_LIMIT}."
+            )));
+        }
+        if cancel.is_cancelled() {
+            return Err(MediaError::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(MediaError::Cancelled),
+            result = async {
+                let client = self.client().await?;
+                let payload = serde_json::json!({
+                    "videoId": id,
+                    "playlistId": format!("{MIX_PLAYLIST_PREFIX}{id}"),
+                });
+                let response =
+                    bounded_innertube_json(client, "/next", payload, &UP_NEXT_REQUEST).await?;
+                Ok(crate::up_next::parse_up_next(&response, &id, limit))
+            } => result,
+        }
+    }
+
+    /// Base URL of the album cover of the song YouTube identifies in the
+    /// video's description, from one watch-next request; size it with
+    /// [`crate::sized_artwork`]. `Ok(None)` when the video names no single
+    /// song, or names one its title does not mention.
+    pub async fn album_artwork(
+        &self,
+        input: &str,
+        cancel: CancellationToken,
+    ) -> Result<Option<String>> {
+        let id = video_id(input)?;
+        if cancel.is_cancelled() {
+            return Err(MediaError::Cancelled);
+        }
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(MediaError::Cancelled),
+            result = async {
+                let client = self.client().await?;
+                let payload = serde_json::json!({ "videoId": id });
+                let response =
+                    bounded_innertube_json(client, "/next", payload, &ALBUM_ART_REQUEST).await?;
+                Ok(crate::album_art::parse_album_artwork(&response))
+            } => result,
+        }
     }
 
     pub async fn metadata(&self, input: &str) -> Result<SearchResult> {
@@ -682,6 +720,124 @@ impl YoutubeClient {
     }
 }
 
+/// Largest InnerTube JSON body accepted from search and watch-next requests.
+const INNERTUBE_RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
+/// Total time allowed for one search or watch-next request, body included.
+const INNERTUBE_REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
+/// YouTube names the automatic Mix of a video `RD<videoId>`.
+const MIX_PLAYLIST_PREFIX: &str = "RD";
+
+/// Longest search text accepted, in bytes.
+const MAX_QUERY_BYTES: usize = 2048;
+
+/// Trimmed search text: not empty, at most `MAX_QUERY_BYTES` and without
+/// control characters.
+pub(crate) fn search_text(query: &str) -> Result<&str> {
+    let query = query.trim();
+    if query.is_empty() || query.len() > MAX_QUERY_BYTES || query.chars().any(char::is_control) {
+        return Err(MediaError::InvalidInput(
+            "Escribe una búsqueda válida.".into(),
+        ));
+    }
+    Ok(query)
+}
+
+/// User-facing failures of one bounded InnerTube request.
+pub(crate) struct RequestMessages {
+    pub(crate) too_large: &'static str,
+    pub(crate) invalid: &'static str,
+    pub(crate) timeout: &'static str,
+}
+
+pub(crate) const SEARCH_REQUEST: RequestMessages = RequestMessages {
+    too_large: "La respuesta de búsqueda supera el límite admitido.",
+    invalid: "La búsqueda no entregó datos válidos.",
+    timeout: "La búsqueda tardó demasiado.",
+};
+
+const UP_NEXT_REQUEST: RequestMessages = RequestMessages {
+    too_large: "La respuesta de recomendaciones supera el límite admitido.",
+    invalid: "Las recomendaciones no entregaron datos válidos.",
+    timeout: "Las recomendaciones tardaron demasiado.",
+};
+
+const ALBUM_ART_REQUEST: RequestMessages = RequestMessages {
+    too_large: "La página del vídeo supera el límite admitido.",
+    invalid: "La página del vídeo no entregó datos válidos.",
+    timeout: "La búsqueda de la carátula tardó demasiado.",
+};
+
+/// `innertube-rs` alias of YouTube Music's web client (`WEB_REMIX`).
+const MUSIC_CLIENT: &str = innertube_rs::constants::clients::YTMUSIC_NAME;
+
+/// POST to InnerTube and decode JSON. Bodies are never buffered past the size
+/// cap, and the whole exchange fails once it exceeds the request timeout.
+pub(crate) async fn bounded_innertube_json(
+    client: &Innertube,
+    endpoint: &str,
+    payload: serde_json::Value,
+    messages: &RequestMessages,
+) -> Result<serde_json::Value> {
+    bounded_json(client.session.post_innertube(endpoint, payload), messages).await
+}
+
+/// [`bounded_innertube_json`] through YouTube Music's client and origin.
+pub(crate) async fn bounded_music_json(
+    client: &Innertube,
+    endpoint: &str,
+    payload: serde_json::Value,
+    messages: &RequestMessages,
+) -> Result<serde_json::Value> {
+    let request = client
+        .session
+        .post_innertube_client(MUSIC_CLIENT, endpoint, payload);
+    bounded_json(request, messages).await
+}
+
+async fn bounded_json(
+    request: impl std::future::Future<Output = innertube_rs::Result<reqwest::Response>>,
+    messages: &RequestMessages,
+) -> Result<serde_json::Value> {
+    tokio::time::timeout(INNERTUBE_REQUEST_TIMEOUT, async {
+        let response = request
+            .await
+            .map_err(youtube_error)?
+            .error_for_status()
+            .map_err(crate::network_error)?;
+        let too_large = || MediaError::Youtube(messages.too_large.into());
+        let bytes = capped_body(response, INNERTUBE_RESPONSE_LIMIT, too_large).await?;
+        serde_json::from_slice(&bytes).map_err(|_| MediaError::Youtube(messages.invalid.into()))
+    })
+    .await
+    .map_err(|_| MediaError::Network(messages.timeout.into()))?
+}
+
+/// The whole body of `response`, never buffered past `limit` bytes; the body
+/// fails with `too_large()` as soon as it would exceed the limit.
+pub(crate) async fn capped_body(
+    response: reqwest::Response,
+    limit: usize,
+    too_large: impl Fn() -> MediaError,
+) -> Result<Vec<u8>> {
+    use futures_util::StreamExt;
+    if response
+        .content_length()
+        .is_some_and(|length| length > limit as u64)
+    {
+        return Err(too_large());
+    }
+    let mut bytes = Vec::new();
+    let mut body = response.bytes_stream();
+    while let Some(chunk) = body.next().await {
+        let chunk = chunk.map_err(crate::network_error)?;
+        if bytes.len() + chunk.len() > limit {
+            return Err(too_large());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
 async fn playlist_request(
     client: &Innertube,
     payload: serde_json::Value,
@@ -881,7 +1037,7 @@ async fn bootstrap_session(session: &mut innertube_rs::core::session::Session) -
     Ok(())
 }
 
-fn thumbnail_url(url: &Url) -> bool {
+pub(crate) fn thumbnail_url(url: &Url) -> bool {
     url.scheme() == "https"
         && url.username().is_empty()
         && url.password().is_none()
@@ -891,10 +1047,12 @@ fn thumbnail_url(url: &Url) -> bool {
                 || h.ends_with(".ytimg.com")
                 || h == "yt3.ggpht.com"
                 || h == "yt3.googleusercontent.com"
+                // YouTube Music serves album covers and artist art from here.
+                || h == "lh3.googleusercontent.com"
         })
 }
 
-fn playlist_continuation_token(value: &serde_json::Value) -> Option<String> {
+pub(crate) fn playlist_continuation_token(value: &serde_json::Value) -> Option<String> {
     fn command(node: &serde_json::Value) -> Option<String> {
         if let Some(token) = node
             .get("continuationCommand")
@@ -936,7 +1094,7 @@ fn append_playlist_page(result: &mut PlaylistResult, videos: Vec<PlaylistVideoIt
             break;
         }
         result.items.push(SearchResult {
-            url: format!("https://www.youtube.com/watch?v={}", video.id),
+            url: watch_url(&video.id),
             id: video.id,
             title: video.title,
             channel: video.author,
@@ -1012,7 +1170,7 @@ pub fn canonical_playlist_url(input: &str) -> Result<String> {
 
 fn details_to_result(details: VideoDetails) -> SearchResult {
     SearchResult {
-        url: format!("https://www.youtube.com/watch?v={}", details.video_id),
+        url: watch_url(&details.video_id),
         thumbnail: details
             .thumbnail
             .and_then(|t| t.thumbnails.last().map(|t| t.url.clone()))
@@ -1027,9 +1185,22 @@ fn details_to_result(details: VideoDetails) -> SearchResult {
     }
 }
 
-fn video_id(input: &str) -> Result<String> {
+pub(crate) fn video_id(input: &str) -> Result<String> {
     let canonical = canonical_video_url(input)?;
     Ok(canonical.rsplit('=').next().unwrap_or_default().to_owned())
+}
+
+/// YouTube video ids are exactly 11 URL-safe base64 characters.
+pub(crate) fn is_video_id(id: &str) -> bool {
+    id.len() == 11
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// The canonical watch URL stored for a validated video id.
+pub(crate) fn watch_url(id: &str) -> String {
+    format!("https://www.youtube.com/watch?v={id}")
 }
 
 pub(crate) fn parse_duration(value: &str) -> u64 {
@@ -1074,14 +1245,8 @@ pub fn canonical_video_url(input: &str) -> Result<String> {
     if value.len() > 2048 || value.chars().any(char::is_control) {
         return Err(invalid());
     }
-    let valid_id = |id: &str| {
-        id.len() == 11
-            && id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-    };
-    if valid_id(value) {
-        return Ok(format!("https://www.youtube.com/watch?v={value}"));
+    if is_video_id(value) {
+        return Ok(watch_url(value));
     }
     let full = if value.contains("://") {
         value.to_owned()
@@ -1128,10 +1293,10 @@ pub fn canonical_video_url(input: &str) -> Result<String> {
         }
         _ => return Err(invalid()),
     };
-    if !valid_id(&id) {
+    if !is_video_id(&id) {
         return Err(invalid());
     }
-    Ok(format!("https://www.youtube.com/watch?v={id}"))
+    Ok(watch_url(&id))
 }
 
 fn youtube_error(error: innertube_rs::InnertubeError) -> MediaError {
@@ -1302,6 +1467,31 @@ mod tests {
         assert!(matches!(
             client
                 .playlist_with_limit("PL49CF3715CB9EF31D", 500, cancel)
+                .await,
+            Err(MediaError::Cancelled)
+        ));
+        assert!(client.client.get().is_none());
+    }
+
+    #[tokio::test]
+    async fn up_next_rejects_bad_input_and_precancellation_without_network() {
+        let client = YoutubeClient::new().unwrap();
+        for (input, limit) in [
+            ("not a video", UP_NEXT_ITEM_LIMIT),
+            ("https://evil.example/watch?v=dQw4w9WgXcQ", 10),
+            ("dQw4w9WgXcQ", 0),
+            ("dQw4w9WgXcQ", UP_NEXT_ITEM_LIMIT + 1),
+        ] {
+            assert!(matches!(
+                client.up_next(input, limit, CancellationToken::new()).await,
+                Err(MediaError::InvalidInput(_))
+            ));
+        }
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        assert!(matches!(
+            client
+                .up_next("https://youtu.be/dQw4w9WgXcQ", UP_NEXT_ITEM_LIMIT, cancel)
                 .await,
             Err(MediaError::Cancelled)
         ));

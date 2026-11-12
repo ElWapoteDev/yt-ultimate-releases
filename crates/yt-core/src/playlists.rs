@@ -1,5 +1,7 @@
 use crate::{
-    AppCore, CoreError, ImportFailure, Playlist, PlaylistExportReport, Result, Track, now,
+    AppCore, CoreError, ImportFailure, Playlist, PlaylistExportReport, Result, Track,
+    library::{FAVORITE_JOIN, TRACK_COLUMNS},
+    now,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{collections::HashSet, io::Write, path::Path};
@@ -169,8 +171,10 @@ impl AppCore {
         if !exists {
             return Err(CoreError::NotFound(id.into()));
         }
-        let mut query=db.prepare("SELECT t.*,COALESCE(p.favorite,0) AS favorite FROM playlist_tracks pt JOIN tracks t ON t.id=pt.track_id
-            LEFT JOIN rust_track_preferences p ON p.track_id=t.id WHERE pt.playlist_id=?1 ORDER BY pt.position")?;
+        let mut query = db.prepare(&format!(
+            "SELECT {TRACK_COLUMNS} FROM playlist_tracks pt JOIN tracks t ON t.id=pt.track_id
+             {FAVORITE_JOIN} WHERE pt.playlist_id=?1 ORDER BY pt.position"
+        ))?;
         let rows = query.query_map([id], |row| self.row_to_track(row))?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }

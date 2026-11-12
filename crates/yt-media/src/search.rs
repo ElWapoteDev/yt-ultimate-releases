@@ -1,23 +1,41 @@
 use crate::{
-    youtube::{parse_duration, parse_views},
+    youtube::{is_video_id, parse_duration, parse_views, watch_url},
     SearchResult,
 };
 use innertube_rs::parser::nodes::video::VideoNode;
 use serde_json::Value;
 use std::collections::HashMap;
 
+/// Renderer names of complete video cards across search, browse and watch pages.
+pub(crate) const CARD_KEYS: [&str; 4] = [
+    "videoRenderer",
+    "compactVideoRenderer",
+    "gridVideoRenderer",
+    "lockupViewModel",
+];
+
 /// Parse only complete renderer cards. The upstream generic tree walker also
 /// recognizes nested watch endpoints as videos, producing duplicate empty rows.
 pub(crate) fn parse_results(value: &Value, limit: usize) -> Vec<SearchResult> {
+    parse_matching_results(value, limit, |_| true)
+}
+
+/// [`parse_results`] limited to the cards whose renderer object `keep` accepts.
+pub(crate) fn parse_matching_results(
+    value: &Value,
+    limit: usize,
+    keep: impl Fn(&Value) -> bool,
+) -> Vec<SearchResult> {
     let mut results = Vec::new();
     let mut indices = HashMap::new();
-    collect(value, &mut results, &mut indices, 0);
+    collect(value, &keep, &mut results, &mut indices, 0);
     results.truncate(limit);
     results
 }
 
 fn collect(
     value: &Value,
+    keep: &dyn Fn(&Value) -> bool,
     results: &mut Vec<SearchResult>,
     indices: &mut HashMap<String, usize>,
     depth: usize,
@@ -26,14 +44,9 @@ fn collect(
         return;
     }
     if let Some(object) = value.as_object() {
-        for key in [
-            "videoRenderer",
-            "compactVideoRenderer",
-            "gridVideoRenderer",
-            "lockupViewModel",
-        ] {
+        for key in CARD_KEYS {
             if let Some(card) = object.get(key) {
-                if let Some(video) = parse_card(card) {
+                if let Some(video) = keep(card).then(|| parse_card(card)).flatten() {
                     if let Some(&index) = indices.get(&video.id) {
                         let previous = &mut results[index];
                         if previous.duration_seconds == 0 {
@@ -55,16 +68,17 @@ fn collect(
             }
         }
         for child in object.values() {
-            collect(child, results, indices, depth + 1);
+            collect(child, keep, results, indices, depth + 1);
         }
     } else if let Some(array) = value.as_array() {
         for child in array {
-            collect(child, results, indices, depth + 1);
+            collect(child, keep, results, indices, depth + 1);
         }
     }
 }
 
-fn parse_card(card: &Value) -> Option<SearchResult> {
+/// Parse the inner object of one `CARD_KEYS` renderer into a playable video.
+pub(crate) fn parse_card(card: &Value) -> Option<SearchResult> {
     if card
         .get("contentType")
         .and_then(Value::as_str)
@@ -73,12 +87,7 @@ fn parse_card(card: &Value) -> Option<SearchResult> {
         return None;
     }
     let video = VideoNode::from_value(card)?;
-    if video.id.len() != 11
-        || !video
-            .id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-    {
+    if !is_video_id(&video.id) {
         return None;
     }
     let duration_seconds = video
@@ -89,14 +98,17 @@ fn parse_card(card: &Value) -> Option<SearchResult> {
         .or_else(|| badge_duration(card.get("contentImage").unwrap_or(&Value::Null), 0))
         .unwrap_or(0);
     Some(SearchResult {
-        url: format!("https://www.youtube.com/watch?v={}", video.id),
+        url: watch_url(&video.id),
         id: video.id,
         title: video.title,
+        // Thumbnail order differs between renderers; the widest is the one
+        // that stays sharp in large artwork.
         thumbnail: video
             .thumbnails
             .thumbnails
-            .last()
-            .map(|t| t.url.clone())
+            .iter()
+            .max_by_key(|thumbnail| thumbnail.width)
+            .map(|thumbnail| thumbnail.url.clone())
             .unwrap_or_default(),
         channel: video.author.map(|a| a.name).unwrap_or_default(),
         duration_seconds,
@@ -106,7 +118,7 @@ fn parse_card(card: &Value) -> Option<SearchResult> {
 
 /// Badge order and wrapper names vary. Search the thumbnail subtree, never
 /// title/accessibility prose, and accept only a clock-shaped duration.
-fn badge_duration(value: &Value, depth: usize) -> Option<u64> {
+pub(crate) fn badge_duration(value: &Value, depth: usize) -> Option<u64> {
     if depth > 16 {
         return None;
     }

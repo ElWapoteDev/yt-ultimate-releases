@@ -9,6 +9,7 @@ use std::{
     collections::HashSet,
     fs::File,
     io::{Read, Seek, SeekFrom},
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Condvar, Mutex,
@@ -38,6 +39,7 @@ pub struct StreamingSnapshot {
 pub struct StreamingHandle {
     cancel: CancellationToken,
     state: Arc<Mutex<StreamingSnapshot>>,
+    file: Arc<PathBuf>,
 }
 impl StreamingHandle {
     pub fn cancel(&self) {
@@ -45,6 +47,13 @@ impl StreamingHandle {
     }
     pub fn snapshot(&self) -> StreamingSnapshot {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+    /// The temporary file holding the whole stream, once every byte is
+    /// downloaded, so it can be read alongside playback (the DJ analyzes it)
+    /// without downloading it again. It is removed when the stream's playback
+    /// or preparation ends.
+    pub fn complete_file(&self) -> Option<PathBuf> {
+        self.snapshot().complete.then(|| self.file.as_ref().clone())
     }
 }
 
@@ -98,14 +107,15 @@ pub async fn open_http_audio(
         buffering: true,
         ..Default::default()
     }));
-    let handle = StreamingHandle {
-        cancel: local_cancel.clone(),
-        state: stats.clone(),
-    };
     let file = tempfile::Builder::new()
         .prefix("ytu-stream-")
         .suffix(".cache")
         .tempfile()?;
+    let handle = StreamingHandle {
+        cancel: local_cancel.clone(),
+        state: stats.clone(),
+        file: Arc::new(file.path().to_owned()),
+    };
     let reader = File::open(file.path())?;
     let cache = Arc::new(Cache {
         file,
@@ -453,6 +463,7 @@ mod tests {
             wav.extend_from_slice(&value.to_le_bytes());
         }
         let len = wav.len() as u64;
+        let expected = wav.clone();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
@@ -532,6 +543,21 @@ mod tests {
         assert!(
             !handle.snapshot().complete,
             "seek should request its target before sequential prefetch finishes"
+        );
+        assert_eq!(
+            handle.complete_file(),
+            None,
+            "only a whole download is offered"
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while !handle.snapshot().complete && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let file = handle.complete_file().expect("the download completes");
+        assert_eq!(
+            std::fs::read(file).unwrap(),
+            expected,
+            "the file holds every byte"
         );
         handle.cancel();
         drop(decoder);

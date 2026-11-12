@@ -8,6 +8,7 @@ El ejecutable nuevo es `yt-ultimate`, del paquete `yt-app`. Los componentes y es
 | --- | --- | --- | --- |
 | macOS Apple Silicon | Mac ARM64, Rust estable, CMake y Xcode Command Line Tools | `.app`, `.dmg` | macOS 12 o posterior; WKWebView del sistema |
 | macOS Apple Silicon con separación de voces | Lo anterior, LibTorch 2.12 ARM64 y el modelo exportado | `.app`, `.dmg` en `full/` | macOS 14 o posterior; bibliotecas y modelo incluidos |
+| macOS Apple Silicon con separación Metal | Mac ARM64, herramientas de compilación de la edición base y el modelo BS-RoFormer ViperX en Safetensors | `.app`, `.dmg` en `full-metal/` | Apple Silicon y macOS 14 o posterior según el mínimo declarado |
 | macOS Intel | Mac Intel, Rust estable, CMake y Xcode Command Line Tools | `.app`, `.dmg` | macOS 12 o posterior; WKWebView del sistema |
 | macOS Intel con separación y CALIDAD | Lo anterior, LibTorch 2.12 compilado para x86_64 y el modelo | `.app`, `.dmg` en `full/` | macOS 14 o posterior; bibliotecas y modelo incluidos |
 | Windows x64 | Windows x64, Rust MSVC estable, Visual Studio C++ Build Tools, CMake, LLVM/libclang y Windows SDK | NSIS `.exe`, WiX `.msi` base | Windows 10/11 x64 y Microsoft Edge WebView2 Runtime |
@@ -46,6 +47,8 @@ cargo run --locked -p xtask -- package
 El comando compila en modo `release`, genera una configuración con rutas absolutas y ejecuta la versión fijada del empaquetador. El destino es `target/packages/<host>/<version>/`. Los iconos originales se conservan en `packaging/icons/`; el identificador sigue siendo `com.ytultimate.desktop`.
 
 El `Info.plist` de Mac declara español e inglés como localizaciones y español como región de desarrollo mediante `packaging/macos/Info.plist`. AppKit puede así seleccionar la localización de sus paneles nativos conforme a las preferencias del sistema, en vez de asumir un bundle solo inglés. El smoke verifica estas declaraciones en la aplicación copiada del DMG.
+
+El mismo `Info.plist` lleva `NSLocationUsageDescription` y `NSLocationWhenInUseUsageDescription`, el texto del aviso con el que macOS pide permiso para usar la ubicación al detectar la zona de los conciertos cercanos; sin esa descripción macOS ignora la solicitud sin avisar, por eso `verify` comprueba que exista en cada `.app`. Las firmas Developer ID usan el runtime endurecido, que solo deja consultar Servicios de ubicación con el entitlement `com.apple.security.personal-information.location` de `packaging/macos/entitlements.plist`; el empaquetador lo recibe en `macos.entitlements`. Las firmas locales ad hoc no usan el runtime endurecido y no lo necesitan.
 
 Opciones:
 
@@ -105,6 +108,93 @@ El resultado queda en `target/packages/<host>/<version>/full/` para conservar ta
 Sin `--signed` se aplica firma ad-hoc después de modificar las rutas y antes de crear el DMG. No se activa hardened runtime en esa firma local: una identidad ad-hoc no tiene Team ID para validar bibliotecas; los paquetes `--signed` sí conservan hardened runtime con Developer ID. La firma local permite verificar integridad, pero no representa una identidad de distribución ni una notarización. Esta edición declara macOS 14 como mínimo por sus bibliotecas nativas. No debe necesitar `DYLD_LIBRARY_PATH`, `LIBTORCH` ni una instalación Python para arrancar en el equipo de destino.
 
 La separación incluida estima voces e instrumental, con CPU y salida WAV estéreo a 44,1 kHz; no equivale a todos los motores y opciones históricos. CALIDAD usa ese resultado, DSP y exportación FLAC24 verificada.
+
+## Paquete local de Apple Silicon con Metal
+
+La opción `--metal-stems` requiere la GPU para la inferencia de BS-RoFormer ViperX. Si Metal no se puede inicializar, la separación devuelve un error de GPU. El paquete local incluye los pesos exportados del checkpoint ViperX existente en `Contents/Resources/models/` y enlaza únicamente bibliotecas y frameworks del sistema. La compilación y la ejecución de este paquete prescinden de LibTorch y Python.
+
+Colocar `bs-roformer-viperx-f16.safetensors` en `crates/yt-media/models/` o indicar su ruta mediante `YTU_PACKAGE_STEMS_MODEL`. El empaquetador comprueba el SHA-256 `97307b43fa9a830a80e7d382fab39a746b2a0777ba38cf4d1c7432ef77ad19a2` de los pesos exportados en FP16. [Preparación del modelo](../crates/yt-media/models/README.md)
+
+```sh
+cargo run --locked -p xtask -- package --metal-stems --formats app
+cargo run --locked -p xtask -- verify --metal-stems --formats app
+```
+
+Los artefactos de esta edición local se guardan en `target/packages/aarch64-apple-darwin/<version>/full-metal/`. Para generar también una imagen de disco, usar `--formats app,dmg`. Los paquetes locales llevan firma ad-hoc y se verifican antes de instalarlos.
+
+## Modo DJ en los paquetes
+
+Los paquetes de macOS para Apple Silicon (base, completo y `full-metal`) incluyen lo que el modo DJ necesita para
+analizar en la GPU. `xtask package`:
+
+1. Compila `ytu-worker` (`cargo build --locked --release -p yt-worker --bin ytu-worker`) con el mismo destino y
+   `MACOSX_DEPLOYMENT_TARGET`, y lo pone en `Contents/MacOS` junto al ejecutable.
+2. Descarga una sola vez, desde su [fuente oficial](https://github.com/microsoft/onnxruntime/releases/tag/v1.26.0),
+   `onnxruntime-osx-arm64-1.26.0.tgz` (31,7 MB, SHA-256
+   `7a1280bbb1701ea514f71828765237e7896e0f2e1cd332f1f70dbd5c3e33aca3`, fijado en el empaquetador) a
+   `target/packaging/downloads/`.
+   - De ahí extrae `libonnxruntime.dylib` (37 MB, arm64, con CoreML, macOS 14 o posterior) a `Contents/Frameworks`.
+   - Su licencia MIT y sus avisos de terceros van a `licenses/`.
+3. Incluye `crates/yt-mir/models/beat-this-final0.onnx` en `Contents/Resources/models`. La app comprueba su SHA-256 al
+   abrirlo.
+4. Solo si `YTU_PACKAGE_VOCAL_MODEL` apunta a `htdemucs-core.onnx` (174 MB), incluye también el modelo de voz, que es
+   el que permite los mashups.
+   - Los paquetes públicos no lo llevan hasta que el dueño revise la licencia de sus pesos (`docs/AI_DJ.md` §7.4).
+   - Sin él, la app no mide voces y el estilo mashup mezcla como el profesional.
+5. Firma ad hoc los paquetes locales sin firmar: primero todo lo de `Contents/Frameworks` y los programas auxiliares de
+   `Contents/MacOS`, y después el paquete.
+6. `verify` exige el trabajador, la biblioteca y el modelo de beats. También comprueba su arquitectura y que solo
+   dependan de bibliotecas del sistema.
+
+7. Solo si `YTU_PACKAGE_FUSION` apunta a un kit de fusiones, incluye las fusiones IA. El kit es una carpeta con:
+   - `sa3-generate`: el programa de sa3.cpp compilado estático, que solo usa bibliotecas del sistema.
+   - `models/`: los cinco GGUF de Stable Audio 3 Medium, unos 4,9 GB. Van a `Resources/models/stable-audio-3`, junto
+     con la licencia comunitaria de Stability, `NOTICE.txt` y la licencia y el aviso de Gemma.
+   - `licenses/`: la licencia de sa3.cpp, la de ggml y sus avisos, que van a `licenses/`.
+
+   La licencia de Stability exige tres cosas: incluir su texto, incluir el aviso y mostrar «Powered by Stability AI».
+   Los ajustes del DJ lo muestran cuando el modelo está instalado. `verify` comprueba que el programa sea arm64, que
+   solo dependa del sistema y que su modelo venga incluido.
+
+```sh
+YTU_PACKAGE_VOCAL_MODEL="$PWD/crates/yt-mir/models/htdemucs-core.onnx" YTU_PACKAGE_FUSION="$PWD/target/native-deps/sa3" cargo run --locked -p xtask -- package --metal-stems --formats app
+```
+
+### El kit de fusiones
+
+Así se arma, todo desde sus fuentes oficiales.
+
+1. **Código.** Clonar sa3.cpp con su submódulo de ggml y fijar el commit; el usado el 12 de noviembre de 2026 es
+   `3f300d8ade6ca96f0e096f2947baa338ab7737f3`:
+
+   ```sh
+   git clone --recurse-submodules https://github.com/betweentwomidnights/sa3.cpp.git
+   ```
+
+2. **Compilación.** Estática, con Metal, sin instrucciones propias de una CPU y para macOS 14:
+
+   ```sh
+   MACOSX_DEPLOYMENT_TARGET=14.0 cmake -S . -B build-static -DCMAKE_BUILD_TYPE=Release -DSA3_METAL=ON -DSA3_STATIC=ON -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DSA3_TRIM_SOURCE_PATHS=ON
+   ```
+
+   ```sh
+   cmake --build build-static --config Release --target sa3-generate
+   ```
+
+   Los shaders de Metal quedan dentro del programa.
+3. **Pesos.** Descargarlos de los repositorios públicos del autor de sa3.cpp en Hugging Face:
+   - `thepatch/stable-audio-3-medium-GGUF`: el DiT F16, el SAME-L F16, el condicionador F32 y `LICENSE.md`.
+   - `thepatch/t5gemma-b-b-ul2-GGUF`: el codificador F16, el vocabulario, `LICENSE.md` y `NOTICE`.
+
+   Sus nombres exactos están en `yt_worker::fusion::Generator::MODEL_FILES`.
+
+Los paquetes públicos no llevan el kit hasta que el dueño acepte la licencia comunitaria de Stability para su
+distribución, que exige registrarse si hay uso comercial, y decida el tamaño de la descarga.
+
+Microsoft no publica ONNX Runtime 1.26 para Macs Intel, así que esos paquetes no traen el análisis del DJ y su modo DJ
+funde. El trabajo pendiente es Windows: `onnxruntime.dll` y `DirectML.dll` junto al ejecutable, de la distribución
+oficial con DirectML, más el trabajador. La app ya busca todo en esos lugares (`crates/yt-app/src/bundled.rs`). En
+desarrollo se indican con `YTU_WORKER`, `YTU_ONNXRUNTIME`, `YTU_BEAT_MODEL` y `YTU_VOCAL_MODEL`.
 
 ## Paquete Windows completo
 

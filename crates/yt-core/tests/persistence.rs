@@ -2,7 +2,9 @@ use rusqlite::{Connection, params};
 use serde_json::json;
 use std::path::Path;
 use tempfile::TempDir;
-use yt_core::{AppCore, ImportMode, JobStatus, PlaybackState};
+use yt_core::{
+    AppCore, ImportMode, JobStatus, ListenEnd, ListenSource, ListenTarget, MediaItem, PlaybackState,
+};
 
 fn wav(path: &Path) {
     let samples = 8000u32;
@@ -261,32 +263,102 @@ fn removed_media_stays_excluded_after_restart_until_an_explicit_import() {
     assert!(source.is_file());
 }
 
-#[test]
-fn schema_one_profiles_add_exclusions_without_changing_media_or_preferences() {
+/// Build a profile exactly as an earlier Rust release left it: the legacy
+/// baseline, the historical migrations up to `version`, one managed track
+/// that is a favorite with two plays, and a custom preference.
+fn historical_rust_profile(version: i64) -> (TempDir, String) {
     let temp = TempDir::new().unwrap();
-    let core = AppCore::open(temp.path()).unwrap();
-    let track = core
-        .import_bytes("existing.wav", b"existing media")
-        .unwrap();
-    core.set_setting("legacy.custom", &json!({"keep":true}))
-        .unwrap();
-    drop(core);
+    let library = temp.path().join("Library");
+    std::fs::create_dir(&library).unwrap();
+    wav(&library.join("existing.wav"));
     let db = Connection::open(temp.path().join("yt-ultimate.sqlite3")).unwrap();
+    db.execute_batch(include_str!("../src/schema.sql")).unwrap();
+    db.execute_batch("CREATE TABLE rust_schema_migrations(version INTEGER PRIMARY KEY,applied_at REAL NOT NULL);")
+        .unwrap();
+    db.execute_batch(include_str!("../src/migrations/0001_rust_tables.sql"))
+        .unwrap();
+    if version >= 2 {
+        db.execute_batch(include_str!(
+            "../src/migrations/0002_library_exclusions.sql"
+        ))
+        .unwrap();
+    }
+    for applied in 1..=version {
+        db.execute(
+            "INSERT INTO rust_schema_migrations(version,applied_at) VALUES(?1,1)",
+            [applied],
+        )
+        .unwrap();
+    }
     db.execute_batch(
-        "DROP TABLE rust_library_exclusions; DELETE FROM rust_schema_migrations WHERE version=2;",
+        "INSERT INTO tracks(id,storage_kind,relative_path,filename,title,artist,media_type,duration,created_at,updated_at)
+           VALUES('existing','managed','existing.wav','existing.wav','Existing','Artist','audio',1,1,5);
+         INSERT INTO rust_track_preferences(track_id,favorite) VALUES('existing',1);
+         INSERT INTO rust_playback_history(track_id,played_at,position_seconds) VALUES('existing',10,0),('existing',20,0.5);
+         INSERT INTO settings(key,value_json,updated_at) VALUES('legacy.custom','{\"keep\":true}',1);",
     )
     .unwrap();
-    drop(db);
+    (temp, "existing".into())
+}
 
-    let reopened = AppCore::open(temp.path()).unwrap();
-    assert_eq!(reopened.track(&track.id).unwrap().path, track.path);
-    assert_eq!(
-        reopened.setting("legacy.custom").unwrap(),
-        Some(json!({"keep":true}))
-    );
-    reopened.remove_track(&track.id).unwrap();
-    assert!(reopened.scan_library().unwrap().tracks.is_empty());
-    assert_eq!(reopened.integrity_check().unwrap(), "ok");
+#[test]
+fn earlier_rust_profiles_migrate_to_the_current_schema_keeping_user_data() {
+    for version in [1, 2] {
+        let (temp, id) = historical_rust_profile(version);
+        let core = AppCore::open(temp.path()).unwrap();
+        assert!(!core.track(&id).unwrap().missing);
+        assert!(core.track(&id).unwrap().favorite, "schema {version}");
+        let favorites = core.favorites().unwrap();
+        assert_eq!(favorites.len(), 1);
+        assert_eq!(favorites[0].added_at, 5.0);
+        let signals = core.listening_signals(10).unwrap();
+        assert_eq!(signals.len(), 2);
+        assert_eq!(signals[0].started_at, 20.0);
+        assert_eq!(signals[0].end, ListenEnd::Unknown);
+        assert_eq!(signals[0].source, ListenSource::User);
+        assert_eq!(signals[0].artist, "Artist");
+        assert_eq!(
+            core.setting("legacy.custom").unwrap(),
+            Some(json!({"keep":true}))
+        );
+        let backups = std::fs::read_dir(temp.path())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("pre-schema-")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(backups.len(), 1, "schema {version}");
+        let backup = Connection::open(backups[0].path()).unwrap();
+        assert_eq!(
+            backup
+                .query_row("SELECT COUNT(*) FROM rust_playback_history", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            2
+        );
+        core.remove_track(&id).unwrap();
+        assert!(core.scan_library().unwrap().tracks.is_empty());
+        assert!(core.favorites().unwrap().is_empty());
+        assert!(core.listening_signals(10).unwrap().is_empty());
+        assert_eq!(core.integrity_check().unwrap(), "ok");
+        drop(core);
+        AppCore::open(temp.path()).unwrap();
+        let backups_after_reopen = std::fs::read_dir(temp.path())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                name.starts_with("pre-schema-") && name.ends_with(".sqlite3")
+            })
+            .count();
+        assert_eq!(backups_after_reopen, 1);
+    }
 }
 
 #[test]
@@ -557,11 +629,15 @@ fn playback_and_history_persist_without_stale_memberships() {
         ..Default::default()
     };
     core.save_playback(&state).unwrap();
-    core.record_playback(&track.id, 0.4).unwrap();
+    core.begin_listen(ListenTarget::Local(&track.id), ListenSource::User)
+        .unwrap();
     assert_eq!(core.load_playback().unwrap(), state);
-    assert_eq!(core.history(10).unwrap()[0].track.id, track.id);
+    assert!(matches!(
+        core.recently_played(10).unwrap().as_slice(),
+        [MediaItem::Local(played)] if played.id == track.id
+    ));
     core.remove_track(&track.id).unwrap();
-    assert!(core.history(10).unwrap().is_empty());
+    assert!(core.recently_played(10).unwrap().is_empty());
 }
 
 #[test]
@@ -615,8 +691,7 @@ fn legacy_v4_profile_is_backed_up_and_preserves_ids_plugins_and_order() {
     wav(&source);
     let db = Connection::open(temp.path().join("yt-ultimate.sqlite3")).unwrap();
     db.execute_batch(include_str!("../src/schema.sql")).unwrap();
-    db.execute_batch("DROP TABLE rust_schema_migrations;DROP TABLE rust_import_sources;DROP TABLE rust_track_preferences;DROP TABLE rust_playback_history;DROP TABLE rust_library_exclusions;
-        CREATE TRIGGER trg_playlist_tracks_compact_after_delete AFTER DELETE ON playlist_tracks BEGIN
+    db.execute_batch("CREATE TRIGGER trg_playlist_tracks_compact_after_delete AFTER DELETE ON playlist_tracks BEGIN
         UPDATE playlist_tracks SET position=position-1 WHERE playlist_id=OLD.playlist_id AND position>OLD.position;END;").unwrap();
     for i in 0..4 {
         db.execute("INSERT INTO tracks(id,storage_kind,relative_path,filename,title,media_type,created_at,updated_at)

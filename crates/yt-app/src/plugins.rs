@@ -19,7 +19,7 @@ fn run_plugin_task<T: Send + 'static>(
         let mut revision = state.plugins_revision;
         revision += 1;
         if let Err(Err(error)) = sender.send(result) {
-            state.notify(format!(
+            state.notify_error(format!(
                 "No se pudo completar la operación del plugin: {error}"
             ));
         }
@@ -159,9 +159,9 @@ pub fn PluginPanel() -> Element {
                                 let result = receiver.await;
                                 creating.set(false);
                                 match result {
-                                    Ok(Ok(path)) => { scaffold_open.set(false); refresh(); state.notify(format!("Plugin creado y desactivado: {}", path.display())); }
-                                    Ok(Err(error)) => state.notify(error),
-                                    Err(error) => state.notify(error.to_string()),
+                                    Ok(Ok(path)) => { scaffold_open.set(false); refresh(); state.notify_success(format!("Plugin creado y desactivado: {}", path.display())); }
+                                    Ok(Err(error)) => state.notify_error(error),
+                                    Err(error) => state.notify_error(error.to_string()),
                                 }
                             });
                         }
@@ -239,9 +239,9 @@ fn PluginExampleCard(props: PluginExampleCardProps) -> Element {
                 let result = receiver.await;
                 installing.set(false);
                 match result {
-                    Ok(Ok(created)) => { props.changed.call(()); state.notify(if created { "Ejemplo instalado y desactivado" } else { "El ejemplo ya está instalado" }); }
-                    Ok(Err(error)) => state.notify(error),
-                    Err(error) => state.notify(error.to_string()),
+                    Ok(Ok(created)) => { props.changed.call(()); state.notify_success(if created { "Ejemplo instalado y desactivado" } else { "El ejemplo ya está instalado" }); }
+                    Ok(Err(error)) => state.notify_error(error),
+                    Err(error) => state.notify_error(error.to_string()),
                 }
             });
         },
@@ -330,7 +330,7 @@ fn PluginCard(props: PluginCardProps) -> Element {
                                     let host = host.clone(); let id = id.clone(); let state = state.clone(); busy.set(true);
                                     let receiver = run_plugin_task(state.clone(), move || host.set_permissions(&id, permissions).map_err(|error|error.to_string()));
                                     spawn(async move { let result = receiver.await; busy.set(false);
-                                        match result { Ok(Ok(())) => props.changed.call(()), Ok(Err(error)) => state.notify(error.to_string()), Err(error) => state.notify(error.to_string()) }
+                                        match result { Ok(Ok(())) => props.changed.call(()), Ok(Err(error)) => state.notify_error(error.to_string()), Err(error) => state.notify_error(error.to_string()) }
                                     });
                                 }
                             }
@@ -360,7 +360,7 @@ fn PluginCard(props: PluginCardProps) -> Element {
                 textarea { class: "rust-inline-input", style: "width:100%;min-height:90px;margin:10px 0;font-family:monospace", aria_label: "Configuración de {plugin.name}", value: "{config}", oninput: move |e| config.set(e.value()) }
                 button { class: "btn-secondary", onclick: move |_| {
                     let text = config.read().clone();
-                    match serde_json::from_str(&text) { Ok(value) => match config_host.set_config(&config_id, value) { Ok(_) => { props.changed.call(()); let mut revision = s.plugins_revision; revision += 1; s.notify("Configuración guardada"); }, Err(e) => s.notify(e.to_string()) }, Err(e) => s.notify(format!("Configuración inválida: {e}")) }
+                    match serde_json::from_str(&text) { Ok(value) => match config_host.set_config(&config_id, value) { Ok(_) => { props.changed.call(()); let mut revision = s.plugins_revision; revision += 1; s.notify_success("Configuración guardada"); }, Err(e) => s.notify_error(e.to_string()) }, Err(e) => s.notify_warning(format!("Configuración inválida: {e}")) }
                 }, "Guardar configuración" }
             }
             if !output.read().is_empty() { pre { class: "rust-settings-note", style: "white-space:pre-wrap;overflow-wrap:anywhere", "{output}" } }
@@ -374,7 +374,7 @@ fn PluginCard(props: PluginCardProps) -> Element {
                 spawn(async move {
                     let result = receiver.await;
                     busy.set(false);
-                    match result { Ok(Ok(_)) => props.changed.call(()), Ok(Err(e)) => state.notify(e.to_string()), Err(e) => state.notify(e.to_string()) }
+                    match result { Ok(Ok(_)) => props.changed.call(()), Ok(Err(e)) => state.notify_error(e.to_string()), Err(e) => state.notify_error(e.to_string()) }
                 });
             }, span {} }
     } }
@@ -431,6 +431,6 @@ mod tests {
             "Created after leaving plugin settings"
         );
         assert_eq!(services.core.playlists().unwrap().len(), 1);
-        assert!(state.notice.peek().is_none());
+        assert!(state.last_notice().is_none());
     }
 }

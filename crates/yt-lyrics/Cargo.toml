@@ -1,0 +1,10 @@
+[package]
+name = "yt-lyrics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Pure lyrics catalog matching and karaoke timing for YT Ultimate"
+
+[dependencies]
+yt-core = { path = "../yt-core" }

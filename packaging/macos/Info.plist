@@ -9,5 +9,9 @@
         <string>es</string>
         <string>en</string>
     </array>
+    <key>NSLocationUsageDescription</key>
+    <string>YT Ultimate usa tu ubicación para saber en qué ciudad estás y mostrarte primero los conciertos cerca de ti. Tu ubicación no sale de este equipo: solo se guarda el nombre de tu ciudad.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>YT Ultimate usa tu ubicación para saber en qué ciudad estás y mostrarte primero los conciertos cerca de ti. Tu ubicación no sale de este equipo: solo se guarda el nombre de tu ciudad.</string>
 </dict>
 </plist>

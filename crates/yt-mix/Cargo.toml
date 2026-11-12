@@ -1,0 +1,15 @@
+[package]
+name = "yt-mix"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Beat-matched transitions for the YT Ultimate DJ: planning, automation, per-deck DSP and evaluation"
+
+[dependencies]
+yt-core = { path = "../yt-core" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+serde_json = "1"

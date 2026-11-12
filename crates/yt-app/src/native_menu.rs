@@ -527,7 +527,7 @@ pub(super) fn use_application_menu(state: AppState) {
             window.webview.close_devtools();
         }
         if let Err(error) = rebuild(&state) {
-            state.notify(format!("No se pudo actualizar el menú: {error}"));
+            state.notify_error(format!("No se pudo actualizar el menú: {error}"));
         }
     });
 }
@@ -576,8 +576,8 @@ fn dispatch(state: &AppState, action: Action) {
                 state.plugins_revision += 1;
                 match result {
                     Ok(Ok(value)) => state.notify(value.to_string()),
-                    Ok(Err(error)) => state.notify(error.to_string()),
-                    Err(error) => state.notify(error.to_string()),
+                    Ok(Err(error)) => state.notify_error(error.to_string()),
+                    Err(error) => state.notify_error(error.to_string()),
                 }
             });
         }
@@ -621,7 +621,7 @@ fn dispatch(state: &AppState, action: Action) {
             }
             "reload-plugins" => {
                 state.plugins_revision += 1;
-                state.notify("Plugins recargados");
+                state.notify_success("Plugins recargados");
             }
             "devtools" if state.settings.peek().developer_mode => {
                 if window.webview.is_devtools_open() {
@@ -633,7 +633,7 @@ fn dispatch(state: &AppState, action: Action) {
             "reload-ui" if state.settings.peek().developer_mode => {
                 state.persist_playback();
                 if let Err(error) = window.webview.reload() {
-                    state.notify(error.to_string());
+                    state.notify_error(error.to_string());
                 }
             }
             "help" => show_document(&state, "GUIA.md", include_str!("../../../README.md")),
@@ -690,8 +690,8 @@ fn open_logs(state: &AppState) {
         .await
         {
             Ok(Ok(())) => open_folder(&state, &directory),
-            Ok(Err(error)) => state.notify(error.to_string()),
-            Err(error) => state.notify(error.to_string()),
+            Ok(Err(error)) => state.notify_error(error.to_string()),
+            Err(error) => state.notify_error(error.to_string()),
         }
     });
 }

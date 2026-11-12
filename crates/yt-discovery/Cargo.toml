@@ -1,0 +1,10 @@
+[package]
+name = "yt-discovery"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Pure listening-affinity and recommendation ranking for YT Ultimate"
+
+[dependencies]
+yt-core = { path = "../yt-core" }

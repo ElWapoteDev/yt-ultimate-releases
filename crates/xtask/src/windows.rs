@@ -5,7 +5,6 @@ use std::{
     ffi::OsStr,
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 const WEBVIEW2_URL: &str = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
@@ -24,30 +23,8 @@ pub fn webview2_bootstrapper(root: &Path) -> Result<PathBuf> {
                 .ok_or("Missing bootstrapper parent directory")?,
         )?;
         let partial = path.with_extension("exe.download");
-        let status = if cfg!(windows) {
-            crate::powershell().args([
-                "-NoProfile", "-NonInteractive", "-Command",
-                "$ErrorActionPreference='Stop'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:YTU_BOOTSTRAPPER_URL -OutFile $env:YTU_BOOTSTRAPPER_PATH"
-            ]).env("YTU_BOOTSTRAPPER_URL", WEBVIEW2_URL).env("YTU_BOOTSTRAPPER_PATH", &partial).status()?
-        } else {
-            Command::new("curl")
-                .args([
-                    "--fail",
-                    "--location",
-                    "--proto",
-                    "=https",
-                    "--tlsv1.2",
-                    "--retry",
-                    "2",
-                    "--output",
-                ])
-                .arg(&partial)
-                .arg(WEBVIEW2_URL)
-                .status()?
-        };
-        if !status.success() {
-            return Err("Could not download the official WebView2 bootstrapper".into());
-        }
+        crate::download(WEBVIEW2_URL, &partial)
+            .map_err(|_| "Could not download the official WebView2 bootstrapper")?;
         verify_webview2_bootstrapper(&partial)?;
         fs::rename(partial, &path)?;
     }

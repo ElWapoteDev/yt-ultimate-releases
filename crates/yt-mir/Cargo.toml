@@ -1,0 +1,28 @@
+[package]
+name = "yt-mir"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Music analysis for the YT Ultimate DJ: beats, bars, meter, tempo, key and loudness"
+
+[dependencies]
+yt-core = { path = "../yt-core" }
+yt-media = { path = "../yt-media" }
+ebur128 = "0.1.11"
+# Loaded at run time from the bundled ONNX Runtime library; api-24 keeps ONNX Runtime 1.24 (DirectML) usable.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["load-dynamic", "api-24"] }
+realfft = "3.5"
+rubato = "0.16"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+thiserror = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["coreml"] }
+
+[target.'cfg(windows)'.dependencies]
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["directml"] }
+
+[dev-dependencies]
+rodio = { version = "0.21.1", default-features = false }

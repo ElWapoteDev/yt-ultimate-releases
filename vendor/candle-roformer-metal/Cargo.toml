@@ -1,0 +1,12 @@
+[package]
+name = "ytu-candle-roformer-metal"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+candle-core = { version = "=0.11.1", features = ["metal"] }
+candle-metal-kernels = "=0.11.1"
+candle-nn = { version = "=0.11.1", features = ["metal"] }
+rustfft = "6"

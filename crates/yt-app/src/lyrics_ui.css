@@ -1,0 +1,392 @@
+/* Lyrics: the side panel, the full-screen stage and the karaoke lines.
+   Lines change with opacity and transform only; the karaoke fill animates
+   the registered --lyric-fill, painted through the text. Lines step back by
+   distance from the voice, so the eye never has to search for it: the sung
+   line at full size and brightness, the next one readable, the rest smaller
+   and dimmer, sung lines dimmest, and the list fading at its edges. */
+
+@property --lyric-fill {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+
+@keyframes lyric-fill {
+  from { --lyric-fill: 0%; }
+  to { --lyric-fill: 100%; }
+}
+
+.lyrics-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 68;
+  background: transparent;
+}
+
+.lyrics-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  max-width: 86vw;
+  border-left: 0.5px solid var(--border-default);
+  background: var(--surface-elevated);
+  box-shadow: -18px 0 50px rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: var(--blur-thick);
+  backdrop-filter: var(--blur-thick);
+  animation: slideInRight 240ms var(--ease-out) both;
+}
+
+:root[data-platform="win32"] .lyrics-panel {
+  top: var(--titlebar-height);
+}
+
+.lyrics-panel__header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 16px 10px;
+}
+
+.lyrics-panel__title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.lyrics-tools {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+
+.lyrics-tools__source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Plain text buttons, like the rest of the tools: no capsule around them. */
+.lyrics-tools__sync {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.lyrics-tools__step,
+.lyrics-tools__offset {
+  height: 24px;
+  padding: 0 6px;
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.lyrics-tools__step {
+  min-width: 26px;
+  font-size: 14px;
+}
+
+.lyrics-tools__step:hover,
+.lyrics-tools__offset:not(:disabled):hover {
+  color: var(--text-primary);
+  background: var(--hover-fill-strong);
+}
+
+.lyrics-tools__offset:disabled {
+  cursor: default;
+}
+
+.lyrics-lines {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 0 14px;
+  overflow-y: auto;
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 16%, #000 80%, transparent);
+  mask-image: linear-gradient(180deg, transparent, #000 16%, #000 80%, transparent);
+}
+
+.lyrics-lines::-webkit-scrollbar {
+  width: 8px;
+}
+
+.lyrics-lines::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.08);
+  background-clip: padding-box;
+}
+
+/* Room for the first line to reach the sung line's place (FOCUS_POINT in
+   lyrics_ui.rs) and for the last one to rise to it. */
+.lyrics-lines__spacer {
+  flex: none;
+  height: 36%;
+}
+
+.lyrics-lines__spacer:last-child {
+  height: 56%;
+}
+
+.lyric-line {
+  --lyric-sung: var(--text-primary);
+  --lyric-unsung: var(--text-primary);
+  position: relative;
+  display: block;
+  flex: none;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.012em;
+  line-height: 1.26;
+  text-align: left;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  opacity: 0.28;
+  transform: scale(0.94);
+  transform-origin: left center;
+  cursor: pointer;
+  transition:
+    opacity 380ms var(--ease-out),
+    transform 380ms var(--ease-out);
+}
+
+.lyric-line--past {
+  opacity: 0.16;
+}
+
+.lyric-line--next {
+  opacity: 0.42;
+  transform: scale(0.97);
+}
+
+/* Words still to sing dim only on the sung line, and stay brighter than the
+   next line, so the eye finishes the line before it moves on. */
+.lyric-line--active {
+  --lyric-sung: color-mix(in oklab, var(--accent) 22%, var(--text-primary));
+  --lyric-unsung: color-mix(in srgb, var(--text-primary) 55%, transparent);
+  opacity: 1;
+  transform: none;
+}
+
+.lyric-line:not(.lyric-line--active):hover {
+  opacity: 0.8;
+}
+
+.lyric-line:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.lyric-line__anchor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* An instrumental break: three dots that breathe while it lasts. */
+.lyric-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  height: 1.26em;
+}
+
+.lyric-dots i {
+  width: 0.3em;
+  height: 0.3em;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.lyric-line--active .lyric-dots i {
+  animation: lyric-dot 1.5s ease-in-out infinite;
+}
+
+.lyric-line--active .lyric-dots i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.lyric-line--active .lyric-dots i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.lyrics-lines--paused .lyric-dots i {
+  animation-play-state: paused;
+}
+
+@keyframes lyric-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+.lyric-fill {
+  background-image: linear-gradient(
+    90deg,
+    var(--lyric-sung) calc(var(--lyric-fill) - 3%),
+    var(--lyric-unsung) calc(var(--lyric-fill) + 3%)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation-name: lyric-fill;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+}
+
+.lyrics-lines--paused .lyric-fill {
+  animation-play-state: paused;
+}
+
+.lyrics-lines--plain {
+  gap: 2px;
+  padding-bottom: 24px;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.lyrics-note {
+  padding: 4px 8px 10px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lyric-plain {
+  padding: 2px 8px;
+  color: color-mix(in srgb, var(--text-primary) 82%, transparent);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.lyric-plain--break {
+  min-height: 14px;
+}
+
+.lyrics-message {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.lyrics-message__title {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.lyrics-message__hint {
+  max-width: 280px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* Full-screen stage, in the place of the cover. */
+
+.lyrics-stage {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: min(56vw, 760px);
+  height: min(72vh, 820px);
+}
+
+.lyrics-stage__tools {
+  display: flex;
+  flex: none;
+  padding: 0 8px 10px;
+}
+
+.lyrics-stage .lyrics-tools {
+  justify-content: flex-start;
+}
+
+.lyrics-lines--stage {
+  gap: 14px;
+  padding: 0;
+  scrollbar-width: none;
+}
+
+.lyrics-lines--stage::-webkit-scrollbar {
+  display: none;
+}
+
+.lyrics-lines--stage .lyric-line {
+  padding: 8px;
+  font-size: clamp(26px, 3vw, 44px);
+  letter-spacing: -0.02em;
+  line-height: 1.18;
+}
+
+.lyrics-lines--stage .lyric-plain {
+  font-size: clamp(18px, 1.8vw, 26px);
+}
+
+.lyrics-stage .lyrics-message__title {
+  font-size: 20px;
+}
+
+@media (max-width: 900px), (max-height: 620px) {
+  .lyrics-stage {
+    width: min(520px, 88vw);
+    height: 46vh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lyrics-panel {
+    animation: none;
+  }
+  .lyric-line {
+    transition: none;
+    transform: none;
+  }
+  .lyric-line--active .lyric-dots i {
+    animation: none;
+  }
+  .lyric-fill {
+    animation: none;
+    background: none;
+    color: inherit;
+    -webkit-text-fill-color: currentColor;
+  }
+}

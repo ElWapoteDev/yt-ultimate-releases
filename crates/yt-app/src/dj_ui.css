@@ -1,0 +1,579 @@
+.dj-blend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: 4px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 100px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  animation: dj-blend-in 240ms ease-out both;
+}
+
+.dj-blend__fader {
+  position: relative;
+  width: 22px;
+  height: 9px;
+}
+
+.dj-blend__fader::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 1px;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.dj-blend__knob {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: transform 250ms linear;
+}
+
+.dj-ai {
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+/* The mix planned out of the playing song, before it starts. */
+.dj-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  /* The song's title gives way before the chip. */
+  flex-shrink: 0;
+  max-width: 65%;
+  margin-left: 4px;
+  padding: 2px 6px;
+  border-radius: 100px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  animation: dj-blend-in 240ms ease-out both;
+}
+
+/* The label gives way before the time, which says when the mix starts. */
+.dj-next__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dj-next__time {
+  flex-shrink: 0;
+  margin-left: -2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dj-next__dot {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.dj-next--preparing .dj-next__dot {
+  animation: dj-breathe 0.8s ease-in-out infinite alternate;
+}
+
+/* Where the planned mix sounds: the overlap of the two songs on the bar. */
+.dj-zone {
+  position: absolute;
+  top: 50%;
+  height: 3.5px;
+  min-width: 2px;
+  transform: translateY(-50%);
+  border-radius: 100px;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 70%, transparent) 0 3px,
+    color-mix(in srgb, var(--accent) 30%, transparent) 3px 6px
+  );
+}
+
+.dj-zone::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 2px;
+  height: 10px;
+  border-radius: 1px;
+  transform: translate(-50%, -50%);
+  background: var(--accent);
+}
+
+.dj-zone--preparing {
+  animation: dj-breathe 0.8s ease-in-out infinite alternate;
+}
+
+/* The bar breathes and a light runs along what has played while two songs blend. */
+.player-progress-track.mixing::before {
+  animation: dj-breathe 1.6s ease-in-out infinite alternate;
+}
+
+.player-progress-track.mixing .player-progress-fill {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.dj-sweep {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.dj-sweep__light {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, white 75%, var(--accent)),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: dj-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes dj-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(260%); }
+}
+
+@keyframes dj-breathe {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+@keyframes dj-blend-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ════════ The blend's show ════════
+   While two songs sound together the player lights up. Each group of the
+   show (`Show` in dj_ui.rs) sets --dj-energy, which swells into the middle of
+   the blend, and between beat-matched songs --dj-beat (a beat of the music)
+   and --dj-phase (a negative delay that puts every pulse on it). Without
+   them the show breathes slowly. Only transform and opacity animate. */
+
+.dj-show {
+  --dj-beat: 2.4s;
+  --dj-phase: 0s;
+  --dj-energy: 1;
+  display: block;
+  pointer-events: none;
+  opacity: var(--dj-energy);
+  transition: opacity 300ms linear;
+}
+
+.dj-show--paused,
+.dj-show--paused * {
+  animation-play-state: paused !important;
+}
+
+/* A pulse: full on the beat, then it lets go. Slow shows breathe instead. */
+@keyframes dj-throb {
+  from { opacity: 1; }
+  to { opacity: 0.35; }
+}
+
+@keyframes dj-turn {
+  to { transform: rotate(1turn); }
+}
+
+/* Level meter of the badge and the banner. */
+.dj-meter {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 9px;
+}
+
+.dj-meter__bar {
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: currentColor;
+  transform-origin: bottom;
+  animation: dj-meter 0.62s ease-in-out infinite alternate;
+}
+
+.dj-meter__bar:nth-child(2) { animation-duration: 0.44s; animation-delay: -0.2s; }
+.dj-meter__bar:nth-child(3) { animation-duration: 0.53s; animation-delay: -0.45s; }
+.dj-meter__bar:nth-child(4) { animation-duration: 0.38s; animation-delay: -0.1s; }
+
+@keyframes dj-meter {
+  from { transform: scaleY(0.25); }
+  to { transform: scaleY(1); }
+}
+
+/* Player bar: a glow behind its controls and a beam along its top edge. */
+.dj-beam {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+}
+
+.dj-beam__glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(70% 160% at 50% 0%, color-mix(in srgb, var(--accent) 36%, transparent), transparent 72%),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), transparent 32%, transparent 68%, color-mix(in srgb, var(--accent) 22%, transparent));
+  animation: dj-throb var(--dj-beat) var(--dj-phase) ease-in-out infinite alternate;
+}
+
+.dj-show--beat .dj-beam__glow,
+.dj-show--beat .dj-beam__line,
+.dj-show--beat .dj-stage__frame {
+  animation-direction: normal;
+  animation-timing-function: cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.dj-beam__line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent) 18%,
+    color-mix(in srgb, white 65%, var(--accent)) 50%,
+    var(--accent) 82%,
+    transparent
+  );
+  animation: dj-throb var(--dj-beat) var(--dj-phase) ease-in-out infinite alternate;
+}
+
+/* A spark crosses the bar once every four beats. */
+.dj-beam__spark {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 16%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, white 85%, var(--accent)), transparent);
+  transform: translateX(-100%);
+  animation: dj-spark calc(var(--dj-beat) * 4) var(--dj-phase) linear infinite;
+}
+
+@keyframes dj-spark {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(725%); }
+}
+
+/* Player bar cover: the leaving song's cover slides away behind it, inside
+   a halo whose light turns around its edge. */
+.player-deck {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.player-deck > .player-artwork {
+  position: relative;
+  z-index: 1;
+}
+
+.dj-halo {
+  position: absolute;
+  inset: -4px;
+  border-radius: 12px;
+}
+
+.dj-halo__edge {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.dj-halo__turn {
+  position: absolute;
+  inset: -50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--accent) 80deg,
+    color-mix(in srgb, white 75%, var(--accent)) 120deg,
+    transparent 180deg,
+    var(--accent) 260deg,
+    transparent 360deg
+  );
+  animation: dj-turn calc(var(--dj-beat) * 4) var(--dj-phase) linear infinite;
+}
+
+.dj-halo__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 80%, white);
+  opacity: 0;
+  animation: dj-ring var(--dj-beat) var(--dj-phase) cubic-bezier(0.2, 0.7, 0.3, 1) infinite;
+}
+
+@keyframes dj-ring {
+  from { opacity: 0.75; transform: scale(1); }
+  to { opacity: 0; transform: scale(var(--dj-reach, 1.45)); }
+}
+
+.dj-leaving {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  will-change: transform, opacity;
+  transition: transform 260ms linear, opacity 260ms linear;
+}
+
+.dj-leaving .thumb,
+.dj-leaving .thumb img {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  object-fit: cover;
+}
+
+.dj-leaving--bar {
+  border-radius: 8px;
+}
+
+.dj-leaving--stage {
+  z-index: 2;
+  border-radius: var(--radius-xl);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5);
+}
+
+/* The progress bar's head glows and beats while two songs blend. */
+.player-progress-track.mixing .player-progress-fill::after {
+  content: '';
+  position: absolute;
+  right: -4px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  transform: none;
+  background: color-mix(in srgb, white 80%, var(--accent));
+  box-shadow: 0 0 12px 3px color-mix(in srgb, var(--accent) 70%, transparent);
+  animation: dj-head 0.6s ease-out infinite alternate;
+}
+
+@keyframes dj-head {
+  from { transform: scale(1); opacity: 1; }
+  to { transform: scale(1.5); opacity: 0.7; }
+}
+
+/* Full screen: rays turn behind everything, once every eight bars, and the
+   edges of the screen glow on the beat. */
+.dj-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.dj-stage__rays {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 110vmax;
+  height: 110vmax;
+  margin: -55vmax 0 0 -55vmax;
+  border-radius: 50%;
+  opacity: 0.6;
+  background: repeating-conic-gradient(
+    from 0deg,
+    transparent 0deg 8deg,
+    color-mix(in srgb, var(--accent) 30%, transparent) 11deg 12deg,
+    transparent 15deg 24deg
+  );
+  -webkit-mask-image: radial-gradient(closest-side, transparent 10%, black 36%, transparent 82%);
+  mask-image: radial-gradient(closest-side, transparent 10%, black 36%, transparent 82%);
+  will-change: transform;
+  animation: dj-turn calc(var(--dj-beat) * 32) linear infinite;
+}
+
+.dj-stage__frame {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 18vmin 2vmin color-mix(in srgb, var(--accent) 42%, transparent);
+  animation: dj-throb var(--dj-beat) var(--dj-phase) ease-in-out infinite alternate;
+}
+
+/* Rings leave the cover: one on every beat, a wider one on every fourth. */
+.dj-rings {
+  position: absolute;
+  inset: 0;
+}
+
+.dj-rings__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-xl);
+  border: 2px solid color-mix(in srgb, var(--accent) 80%, white);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: dj-ring calc(var(--dj-beat) * 2) var(--dj-phase) cubic-bezier(0.2, 0.7, 0.3, 1) infinite;
+}
+
+.dj-rings__ring:nth-child(2) {
+  animation-delay: calc(var(--dj-phase) + var(--dj-beat));
+}
+
+.dj-rings__ring:nth-child(3) {
+  --dj-reach: 2.1;
+  border-width: 1px;
+  animation-duration: calc(var(--dj-beat) * 4);
+}
+
+/* The banner: what the blend is and a crossfader from one song to the other. */
+.dj-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px 16px 14px;
+  border: 0.5px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--accent) 13%, rgba(0, 0, 0, 0.24));
+  animation: dj-blend-in 300ms ease-out both;
+}
+
+.dj-banner__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.dj-banner__songs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dj-banner__song {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: opacity 260ms linear;
+}
+
+.dj-banner__song--to {
+  text-align: right;
+}
+
+.dj-banner__fader {
+  position: relative;
+  display: block;
+  height: 14px;
+  /* Room for the knob at both ends. */
+  margin: 0 5px;
+}
+
+.dj-banner__fader::before,
+.dj-banner__fill {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 2px;
+  border-radius: 2px;
+}
+
+.dj-banner__fader::before {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.dj-banner__fill {
+  background: var(--accent);
+  transform-origin: left center;
+  transition: transform 260ms linear;
+}
+
+/* As wide as the fader: moving it by its own width takes the knob across. */
+.dj-banner__carriage {
+  position: absolute;
+  inset: 0;
+  transition: transform 260ms linear;
+}
+
+.dj-banner__knob {
+  position: absolute;
+  left: -5px;
+  top: 0;
+  width: 10px;
+  height: 14px;
+  border-radius: 3px;
+  background: color-mix(in srgb, white 82%, var(--accent));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 80%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dj-blend,
+  .dj-next,
+  .dj-next--preparing .dj-next__dot,
+  .dj-zone--preparing,
+  .dj-sweep__light,
+  .player-progress-track.mixing::before,
+  .player-progress-track.mixing .player-progress-fill::after,
+  .dj-meter__bar,
+  .dj-show *,
+  .dj-banner {
+    animation: none;
+  }
+  .dj-sweep__light {
+    transform: none;
+    width: 100%;
+    opacity: 0.35;
+  }
+  .dj-blend__knob,
+  .dj-show,
+  .dj-leaving,
+  .dj-banner__song,
+  .dj-banner__fill,
+  .dj-banner__carriage {
+    transition: none;
+  }
+  /* Still lights: no rings, sparks or rays without motion. */
+  .dj-rings__ring,
+  .dj-halo__ring,
+  .dj-beam__spark,
+  .dj-stage__rays {
+    display: none;
+  }
+}

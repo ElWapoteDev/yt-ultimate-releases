@@ -6,7 +6,7 @@
   "publisher": "YT Ultimate",
   "description": "Biblioteca y herramientas multimedia de YT Ultimate",
   "category": "Music",
-  "binaries": [{"path": "yt-ultimate", "main": true}],
+  "binaries": @BINARIES@,
   "binariesDir": @BINARIES_DIR@,
   "outDir": @OUTPUT_DIR@,
   "targetTriple": @HOST@,
@@ -37,6 +37,7 @@
     "infoPlistPath": @MACOS_INFO_PLIST@,
     "minimumSystemVersion": @MINIMUM_MACOS@,
     "frameworks": @FRAMEWORKS@,
+    "entitlements": @MACOS_ENTITLEMENTS@,
     "signingIdentity": @APPLE_IDENTITY@
   },
   "windows": {

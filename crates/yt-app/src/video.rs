@@ -11,7 +11,7 @@ pub fn start_local(mut state: AppState, track: yt_core::Track, position: f64) {
     state.cancel_remote();
     if let Ok(audio) = &state.services.audio {
         if let Err(error) = audio.stop() {
-            state.notify(error.to_string());
+            state.notify_error(error.to_string());
             return;
         }
     }
@@ -39,7 +39,9 @@ pub fn start_local(mut state: AppState, track: yt_core::Track, position: f64) {
     state.stream_loading.set(true);
     state.buffering.set(true);
     let generation = *state.stream_generation.peek();
-    state.notify("Preparando vídeo…");
+    let preparing = state
+        .begin_task("video", format!("Preparando «{}»", track.title))
+        .stop(crate::activity::Stop::Playback);
     dioxus::core::spawn_forever(async move {
         let input = track.path.clone();
         let worker_cancel = cancel.clone();
@@ -49,6 +51,7 @@ pub fn start_local(mut state: AppState, track: yt_core::Track, position: f64) {
         .await
         .map_err(|error| error.to_string())
         .and_then(|result| result.map_err(|error| error.to_string()));
+        drop(preparing);
         if cancel.is_cancelled() || *state.stream_generation.peek() != generation {
             return;
         }
@@ -65,13 +68,13 @@ pub fn start_local(mut state: AppState, track: yt_core::Track, position: f64) {
                     crate::local_media::register_prepared_local_video(std::sync::Arc::new(video));
                 finish_local(&mut state, track, Some(source));
                 if !warnings.is_empty() {
-                    state.notify(warnings);
+                    state.notify_warning(warnings);
                 }
             }
             Err(error) => {
                 state.playing.set(false);
                 state.playback_error.set(Some(error.clone()));
-                state.notify(format!("No se pudo abrir el vídeo: {error}"));
+                state.notify_error(format!("No se pudo abrir el vídeo: {error}"));
             }
         }
     });
@@ -86,13 +89,7 @@ fn finish_local(state: &mut AppState, track: yt_core::Track, source: Option<Stri
         .write()
         .retain(|previous| previous.id != track.id);
     state.history.write().insert(0, track.clone());
-    if let Err(error) = state
-        .services
-        .core
-        .record_playback(&track.id, *state.position.peek())
-    {
-        state.notify(error.to_string());
-    }
+    state.playback_started(&track);
     crate::native::record_recent(&track.path);
     state.persist_playback();
 }
@@ -163,7 +160,7 @@ pub fn command(state: AppState, action: Value) {
             Ok(Some(snapshot)) if key(&state).as_ref() == Some(&media_key) => {
                 apply_snapshot(&state, snapshot)
             }
-            Err(error) if key(&state).as_ref() == Some(&media_key) => state.notify(error),
+            Err(error) if key(&state).as_ref() == Some(&media_key) => state.notify_error(error),
             _ => {}
         }
     });
@@ -341,7 +338,7 @@ mod tests {
             assert!(state.video_track.peek().is_none());
             assert!(state.video_url.peek().is_none());
             assert!(state.playback_error.peek().is_none());
-            assert!(services.core.history(10).unwrap().is_empty());
+            assert!(services.core.recently_played(10).unwrap().is_empty());
             assert_eq!(services.core.load_playback().unwrap().position_seconds, 4.5);
             assert_eq!(std::fs::read(&track.path).unwrap(), bytes);
         });
@@ -381,9 +378,9 @@ mod tests {
                 services.core.load_playback().unwrap().queue,
                 vec![second.id.clone()]
             );
-            let history = services.core.history(10).unwrap();
+            let history = services.core.recently_played(10).unwrap();
             assert_eq!(history.len(), 1);
-            assert_eq!(history[0].track.id, second.id);
+            assert_eq!(history[0].id(), second.id);
         });
     }
 
@@ -442,7 +439,7 @@ mod tests {
         assert_eq!(*state.duration.peek(), 12.0);
         assert!(*state.playing.peek());
         assert!(state.session_history.peek().is_empty());
-        assert_eq!(services.core.history(10).unwrap().len(), 1);
+        assert_eq!(services.core.recently_played(10).unwrap().len(), 1);
         assert_eq!(std::fs::read(&track.path).unwrap(), bytes);
         dom.in_scope(ScopeId::ROOT, || state.cancel_remote());
     }

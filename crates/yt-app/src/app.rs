@@ -66,12 +66,19 @@ fn Application(props: ApplicationProps) -> Element {
     });
     let mut key_state = s.clone();
     let page = *s.page.read();
-    let notice = s.notice.read().clone();
-    let mut dismiss = s.clone();
+    let detail = s.detail.read().last().cloned();
     let drop_state = s.clone();
     rsx! {
         style { {include_str!("../assets/app.css")} }
         style { {include_str!("../assets/rust.css")} }
+        style { {include_str!("favorites_ui.css")} }
+        style { {include_str!("lyrics_ui.css")} }
+        style { {include_str!("dj_ui.css")} }
+        style { {include_str!("cards.css")} }
+        style { {include_str!("artist_ui.css")} }
+        style { {include_str!("navigation.css")} }
+        crate::theme::ArtworkTheme {}
+        crate::album_art::AlbumCovers {}
         div { class: "app-root", tabindex: "0",
             oncontextmenu:move|event|crate::context_menu::show_edit(event,edit_state.clone(),edit_menus.clone()),
             ondragover: |event| event.prevent_default(),
@@ -83,24 +90,45 @@ fn Application(props: ApplicationProps) -> Element {
             },
             onkeydown: move |event| {
                 let key = event.key();
-                if key == Key::Escape { menus.dismiss(); key_state.menu_track.set(None); key_state.chipmunk_track.set(None); key_state.information_track.set(None); key_state.queue_open.set(false); key_state.options_open.set(false); key_state.video_open.set(false); }
+                if key == Key::Escape { menus.dismiss(); key_state.menu_track.set(None); key_state.chipmunk_track.set(None); key_state.information_track.set(None); key_state.credits_track.set(None); key_state.queue_open.set(false); key_state.activity.open.set(false); key_state.options_open.set(false); key_state.video_open.set(false); key_state.lyrics.panel_open.set(false); key_state.now_playing_open.set(false); }
             },
             crate::native::WindowControls {}
             div { class: "app-body",
                 Sidebar {}
                 main { class: "main-wrap",
+                    div {
+                        class: "app-ambient",
+                        aria_hidden: "true",
+                    }
                     div {class:"content-drag",style:"pointer-events:auto",onmousedown:move|event|if event.trigger_button()==Some(dioxus::html::input_data::MouseButton::Primary){if let Some(window)=&window{window.drag();}}}
-                    for current_page in [Page::Home, Page::Search, Page::Library, Page::Playlists, Page::Stems, Page::Downloads, Page::Settings] {
-                        div { class: "page-host", hidden: page != current_page,
+                    for current_page in Page::ALL {
+                        div { class: "page-host", hidden: page != current_page || detail.is_some(),
                             match current_page {
                                 Page::Home => rsx! { HomePage {} }, Page::Search => rsx! { SearchPage {} },
-                                Page::Library => rsx! { LibraryPage {} }, Page::Playlists => rsx! { PlaylistsPage {} },
+                                Page::NewReleases => rsx! { crate::new_releases_ui::NewReleasesPage {} },
+                                Page::Radio => rsx! { crate::radio_ui::RadioPage {} },
+                                Page::Recent => rsx! { crate::library_pages::RecentPage {} },
+                                Page::Artists => rsx! { crate::library_pages::ArtistsPage {} },
+                                Page::Albums => rsx! { crate::library_pages::AlbumsPage {} },
+                                Page::Library => rsx! { LibraryPage {} }, Page::Favorites => rsx! { FavoritesPage {} },
+                                Page::Playlists => rsx! { PlaylistsPage {} },
                                 Page::Downloads => rsx! { DownloadsPage {} }, Page::Settings => rsx! { SettingsPage {} },
                                 Page::Stems => rsx! { StemsPage {} },
                             }
                         }
                     }
+                    if let Some(view) = detail {
+                        div { class: "page-host detail-host", key: "{view:?}",
+                            crate::detail_ui::DetailView { view }
+                        }
+                    }
                     if *s.queue_open.read() { crate::player::QueuePanel {} }
+                    if *s.lyrics.panel_open.read() {
+                        crate::lyrics_ui::LyricsPanel {}
+                    }
+                    if *s.activity.open.read() {
+                        crate::activity_ui::ActivityPanel {}
+                    }
                 }
             }
             PlayerBar {}
@@ -108,18 +136,17 @@ fn Application(props: ApplicationProps) -> Element {
             crate::updates::UpdatePrompt {}
             if *importing.read(){div{class:"import-drop-zone",role:"status",aria_live:"polite",div{class:"import-drop-zone__card",div{class:"import-drop-zone__icon",Icon{name:"folder-input",size:28}Icon{name:"file-music",size:17}}div{class:"import-drop-zone__title","Añadir a tu biblioteca"}div{class:"import-drop-zone__hint","Suelta canciones, vídeos, carpetas o playlists M3U"}}}}
             if s.video_track.read().is_some() { crate::player::VideoPanel {} }
+            if *s.now_playing_open.read() { crate::now_playing::NowPlaying {} }
             if let Some(track) = s.chipmunk_track.read().clone() {
                 crate::processing_ui::ChipmunkDialog { track, onclose: { let mut state=s.clone(); move |_| state.chipmunk_track.set(None) } }
             }
             if let Some(track) = s.information_track.read().clone() {
                 crate::library_ui::InformationDialog { track, onclose: { let mut state = s.clone(); move |_| state.information_track.set(None) } }
             }
-            if let Some(message) = notice {
-                div { class: "rust-notice", role: "status", aria_live: "polite",
-                    span { "{message}" }
-                    button { class: "btn-icon-sm", aria_label: "Cerrar mensaje", onclick: move |_| dismiss.notice.set(None), Icon { name: "close" } }
-                }
+            if let Some(track) = s.credits_track.read().clone() {
+                crate::credits_ui::CreditsDialog { track, onclose: { let mut state = s.clone(); move |_| state.credits_track.set(None) } }
             }
+            crate::activity_ui::Toasts {}
         }
     }
 }
@@ -142,11 +169,17 @@ fn Sidebar() -> Element {
             }
             nav { class: "sidebar-scroll", aria_label: "Navegación principal",
                 NavButton { page: Page::Home, active }
+                NavButton { page: Page::NewReleases, active }
+                NavButton { page: Page::Radio, active }
                 NavButton { page: Page::Search, active }
                 div { class: "sidebar-section-label", "Biblioteca" }
+                NavButton { page: Page::Recent, active }
+                NavButton { page: Page::Artists, active }
+                NavButton { page: Page::Albums, active }
                 NavButton { page: Page::Library, active }
-                NavButton { page: Page::Playlists, active }
+                NavButton { page: Page::Favorites, active }
                 if advanced { NavButton { page: Page::Stems, active } }
+                SidebarPlaylists { active }
                 div { class: "sidebar-spacer" }
                 NavButton { page: Page::Downloads, active }
                 NavButton { page: Page::Settings, active }
@@ -155,9 +188,49 @@ fn Sidebar() -> Element {
     }
 }
 
+/// Playlists listed by name under their own heading, like a music library.
+#[component]
+fn SidebarPlaylists(active: Page) -> Element {
+    let s = use_context::<AppState>();
+    let playlists = s.playlists.read().clone();
+    let selected = s.selected_playlist.read().clone();
+    let browsing = s.detail.read().is_empty();
+    let all = s.clone();
+    rsx! {
+        div { class: "sidebar-section-label sidebar-section-label--action",
+            span { "Playlists" }
+            button {
+                class: "sidebar-section-add",
+                title: "Todas las playlists",
+                aria_label: "Todas las playlists",
+                onclick: move |_| {
+                    let mut selected = all.selected_playlist;
+                    selected.set(None);
+                    all.navigate(Page::Playlists);
+                },
+                Icon { name: "playlist", size: 13 }
+            }
+        }
+        for playlist in playlists {
+            button {
+                key: "{playlist.id}",
+                class: if browsing && active == Page::Playlists && selected.as_deref() == Some(playlist.id.as_str()) { "sidebar-item active" } else { "sidebar-item" },
+                title: "{playlist.name}",
+                onclick: {
+                    let state = s.clone();
+                    let id = playlist.id.clone();
+                    move |_| state.open_playlist(&id)
+                },
+                Icon { name: "playlist", class: "sidebar-icon", stroke_width: 1.8 }
+                span { class: "sidebar-item__label", "{playlist.name}" }
+            }
+        }
+    }
+}
+
 #[component]
 fn NavButton(page: Page, active: Page) -> Element {
-    let mut s = use_context::<AppState>();
+    let s = use_context::<AppState>();
     let badge = s
         .downloads
         .read()
@@ -165,7 +238,7 @@ fn NavButton(page: Page, active: Page) -> Element {
         .filter(|d| matches!(d.status.as_str(), "Preparando" | "Descargando"))
         .count();
     rsx! {
-        button { class: if page == active { "sidebar-item active" } else { "sidebar-item" }, aria_current: if page == active { "page" } else { "false" }, onclick: move |_| s.page.set(page),
+        button { class: if page == active { "sidebar-item active" } else { "sidebar-item" }, aria_current: if page == active { "page" } else { "false" }, onclick: move |_| s.navigate(page),
             Icon { name: page.icon(),class:"sidebar-icon",stroke_width:if page==active{2.1}else{1.8} }
             span { class: "sidebar-item__label", "{page.label()}" }
             if page == Page::Downloads && badge > 0 { span { class: "sidebar-badge", "{badge}" } }
@@ -173,6 +246,10 @@ fn NavButton(page: Page, active: Page) -> Element {
     }
 }
 
+/// A cover, or a placeholder icon when it cannot be shown. Songs show their
+/// album cover when one is known (`album_art`), sized for `size` (`"full"`:
+/// the original image), and fall back to `src` if it fails to load; `video`
+/// items keep their own frames.
 #[component]
 pub fn Thumb(
     #[props(default = String::new())] src: String,
@@ -181,25 +258,62 @@ pub fn Thumb(
     #[props(default = None)] icon_size: Option<u32>,
     #[props(default)] children: Element,
 ) -> Element {
-    let mut failed = use_signal(String::new);
-    let failed_src = src.clone();
-    let allowed = src.starts_with("https://")
-        || src.starts_with("data:image/")
-        || src.starts_with("/artwork/");
-    rsx! { div { class: "thumb thumb--{size}",
-        if allowed && *failed.read() != src {
-            img { src, alt: "", loading: "lazy", draggable: false, onerror: move |_| failed.set(failed_src.clone()) }
-        } else { div { class: "thumb-placeholder", Icon { name: if video { "video" } else { "music" }, size: icon_size.unwrap_or(if size == "square" { 26 } else { 14 }) } } }
-        {children}
-    } }
+    let album_art = try_use_context::<AppState>().map(|state| state.album_art);
+    let mut failed = use_signal(Vec::<String>::new);
+    let image = match album_art {
+        Some(album_art) if !video => album_art.image(&src, crate::album_art::edge_for(size)),
+        _ => src.clone(),
+    };
+    let candidates = [image, src];
+    let shown = candidates
+        .iter()
+        .find(|candidate| allowed_image(candidate) && !failed.read().contains(candidate))
+        .cloned();
+    let failed_src = shown.clone().unwrap_or_default();
+    let on_error = move |_| {
+        let mut failed = failed.write();
+        failed.retain(|earlier| candidates.contains(earlier));
+        failed.push(failed_src.clone());
+    };
+    rsx! {
+        div { class: "thumb thumb--{size}",
+            if let Some(shown) = shown {
+                img {
+                    src: shown,
+                    alt: "",
+                    loading: "lazy",
+                    draggable: false,
+                    onerror: on_error,
+                }
+            } else {
+                div { class: "thumb-placeholder",
+                    Icon {
+                        name: if video { "video" } else { "music" },
+                        size: icon_size.unwrap_or(if size == "square" { 26 } else { 14 }),
+                    }
+                }
+            }
+            {children}
+        }
+    }
+}
+
+fn allowed_image(src: &str) -> bool {
+    src.starts_with("https://") || src.starts_with("data:image/") || src.starts_with("/artwork/")
+}
+
+/// The remote cover a track shows, when it has one instead of a local file.
+pub fn remote_artwork(track: &Track) -> Option<&str> {
+    track
+        .artwork_url
+        .starts_with("https://")
+        .then_some(track.artwork_url.as_str())
 }
 
 pub fn artwork_src(track: &Track) -> String {
-    if track.artwork_url.starts_with("https://") {
-        track.artwork_url.clone()
-    } else {
-        format!("/artwork/{}", track.id)
-    }
+    remote_artwork(track)
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("/artwork/{}", track.id))
 }
 
 #[component]
@@ -231,6 +345,7 @@ pub fn MediaCard(track: Track, #[props(default = false)] home: bool) -> Element 
         div { class: "card-cover", Thumb { src: crate::app::artwork_src(&track), size: "square", video: track.media_type == "video" }
             span { class: "card-play", Icon { name: if active && *s.playing.read() { "pause" } else { "play" },size:15,fill:"currentColor",style:if active && *s.playing.read(){""}else{"margin-left:2px"} } }
             if active && *s.playing.read() { span { class: "card-playing", Equalizer {} } }
+            if s.is_favorite(&track.id) { span { class: "card-favorite", title: "En favoritos", Icon { name: "heart", size: 12, fill: "currentColor" } } }
         }
         div { class: if active { "media-card__title media-card__title--active" } else { "media-card__title" }, "{track.title}" }
         div { class: "media-card__sub", if track.artist.is_empty() { "{size_label(track.size_bytes)}" } else { "{track.artist}" } }
@@ -267,7 +382,8 @@ pub fn TrackRow(track: Track, #[props(default = 0)] index: usize) -> Element {
         Thumb{src:crate::app::artwork_src(&track),video:track.media_type=="video",icon_size:Some(14)}
         div{class:"row__meta",div{class:if active{"row__title row__title--active"}else{"row__title"},"{track.title}"}div{class:"row__sub",if track.artist.is_empty(){"{track.filename}"}else{"{track.artist}"}}}
         span{class:"row__detail",if track.duration>0.0{"{time_label(track.duration)}"}else{"--:--"}}
-        span{class:"row__detail",style:"width:56px;text-align:right","{size_label(track.size_bytes)}"}
+        span{class:"row__detail",style:"width:56px;text-align:right",if crate::remote::is_remote(&track){"En línea"}else{"{size_label(track.size_bytes)}"}}
+        crate::favorites_ui::FavoriteButton { track: track.clone(), size: 14 }
         button{class:"btn-icon-sm",title:"Más opciones",aria_label:"Más opciones de {track.title}",onclick:move|event|crate::context_menu::show_track(event,more_state.clone(),more.clone()),Icon{name:"more",size:15}}
     }}
 }
@@ -331,19 +447,18 @@ mod tests {
                 _ => {}
             }
         }
-        assert_eq!(labeled_buttons.len(), 7);
-        let pages = [
-            Page::Home,
-            Page::Search,
-            Page::Library,
-            Page::Playlists,
-            Page::Stems,
-            Page::Downloads,
-            Page::Settings,
-        ];
-        let buttons = pages.map(|page| labeled_buttons[page.label()]);
+        // Playlists are reached through the sidebar heading, not a page button.
+        let pages = Page::ALL
+            .into_iter()
+            .filter(|page| *page != Page::Playlists)
+            .collect::<Vec<_>>();
+        assert_eq!(labeled_buttons.len(), pages.len());
+        let buttons = pages
+            .iter()
+            .map(|page| labeled_buttons[page.label()])
+            .collect::<Vec<_>>();
         let mut previous = 0;
-        for index in [2, 3, 1, 4, 5, 6, 0, 2] {
+        for index in [2, 3, 1, 4, 5, 6, 7, 11, 8, 10, 9, 0, 2] {
             dioxus::html::set_event_converter(Box::new(dioxus::html::SerializedHtmlEventConverter));
             let data = dioxus::html::PlatformEventData::new(Box::new(
                 dioxus::html::SerializedMouseData::default(),
@@ -388,16 +503,16 @@ mod tests {
             assert_eq!(html.matches("class=\"sidebar-item active\"").count(), 1);
             assert_eq!(html.matches("aria-current=\"page\"").count(), 1);
             assert!(html.contains(&format!("data-selected-page=\"{}\"", selected.label())));
-            for page in pages {
+            for page in &pages {
                 let button = html
                     .split("</button>")
                     .find(|part| part.contains(&format!(">{}</span>", page.label())))
                     .unwrap();
                 assert_eq!(
                     button.contains("class=\"sidebar-item active\""),
-                    page == selected
+                    *page == selected
                 );
-                assert_eq!(button.contains("aria-current=\"page\""), page == selected);
+                assert_eq!(button.contains("aria-current=\"page\""), *page == selected);
             }
             previous = index;
         }
@@ -412,6 +527,7 @@ mod tests {
             HomePage {}
             SearchPage {}
             LibraryPage {}
+            FavoritesPage {}
             PlaylistsPage {}
             DownloadsPage {}
             SettingsPage {}
@@ -429,8 +545,9 @@ mod tests {
         let html = dioxus_ssr::render(&dom);
         for label in [
             "Navegación principal",
-            "Empieza tu biblioteca",
+            "Empieza a escuchar",
             "Buscar música",
+            "Cargando favoritos",
             "Aún no hay música",
             "Sin playlists",
             "No hay descargas",

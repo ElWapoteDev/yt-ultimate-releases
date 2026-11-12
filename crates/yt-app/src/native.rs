@@ -19,12 +19,15 @@ use std::{
 
 #[path = "native_menu.rs"]
 mod application;
+#[path = "native_location.rs"]
+mod location;
 #[path = "native_log.rs"]
 mod logging;
 #[path = "native_media.rs"]
 mod media_controls;
 #[path = "native_window.rs"]
 mod window_controls;
+pub(crate) use location::{device_position, open_location_settings, LocationError};
 pub(crate) use logging::record_log;
 pub(crate) use window_controls::WindowControls;
 
@@ -217,7 +220,7 @@ pub(crate) fn begin_media_drag(state: &AppState, track: &yt_core::Track) {
     let path = match track.path.canonicalize() {
         Ok(path) if path.is_file() => path,
         _ => {
-            state.notify("El archivo ya no está disponible para arrastrarlo.");
+            state.notify_warning("El archivo ya no está disponible para arrastrarlo.");
             return;
         }
     };
@@ -254,13 +257,13 @@ pub(crate) fn begin_media_drag(state: &AppState, track: &yt_core::Track) {
         if let Err(error) = result {
             session.finish();
             document::eval(&session.browser_script(false));
-            state.notify(format!("No se pudo iniciar el arrastre: {error}"));
+            state.notify_error(format!("No se pudo iniciar el arrastre: {error}"));
         }
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = path;
-        state.notify("El arrastre nativo está disponible en Windows y Mac.");
+        state.notify_warning("El arrastre nativo está disponible en Windows y Mac.");
     }
 }
 
@@ -669,9 +672,9 @@ pub(crate) fn open_folder(state: &AppState, path: &std::path::Path) {
             tokio::task::spawn_blocking(move || Command::new(executable).arg(path).status()).await;
         match result {
             Ok(Ok(status)) if status.success() => {}
-            Ok(Ok(status)) => state.notify(format!("No se pudo abrir la carpeta: {status}")),
-            Ok(Err(error)) => state.notify(format!("No se pudo abrir la carpeta: {error}")),
-            Err(error) => state.notify(format!("No se pudo abrir la carpeta: {error}")),
+            Ok(Ok(status)) => state.notify_error(format!("No se pudo abrir la carpeta: {status}")),
+            Ok(Err(error)) => state.notify_error(format!("No se pudo abrir la carpeta: {error}")),
+            Err(error) => state.notify_error(format!("No se pudo abrir la carpeta: {error}")),
         }
     });
 }
@@ -682,7 +685,7 @@ pub(crate) fn copy_text(state: &AppState, text: &str) {
         return;
     }
     if let Err(error) = write_clipboard_text(text) {
-        state.notify(format!("No se pudo copiar el texto: {error}"));
+        state.notify_error(format!("No se pudo copiar el texto: {error}"));
     }
 }
 
@@ -731,8 +734,8 @@ fn run_native_action(
     dioxus::core::spawn_forever(async move {
         match tokio::task::spawn_blocking(action).await {
             Ok(Ok(())) => {}
-            Ok(Err(error)) => state.notify(error),
-            Err(error) => state.notify(format!("No se pudo completar la acción: {error}")),
+            Ok(Err(error)) => state.notify_error(error),
+            Err(error) => state.notify_error(format!("No se pudo completar la acción: {error}")),
         }
     });
 }
@@ -740,21 +743,21 @@ fn run_native_action(
 pub(crate) fn reveal_file(state: &AppState, path: &std::path::Path) {
     match existing_file(path) {
         Ok(path) => run_native_action(state, move || reveal_native(&path)),
-        Err(error) => state.notify(error),
+        Err(error) => state.notify_error(error),
     }
 }
 
 pub(crate) fn open_default_file(state: &AppState, path: &std::path::Path) {
     match openable_file(path) {
         Ok(path) => run_native_action(state, move || open_native(path.as_os_str())),
-        Err(error) => state.notify(error),
+        Err(error) => state.notify_error(error),
     }
 }
 
 pub(crate) fn open_url(state: &AppState, value: &str) {
     match browser_url(value) {
         Ok(url) => run_native_action(state, move || open_native(std::ffi::OsStr::new(&url))),
-        Err(error) => state.notify(error),
+        Err(error) => state.notify_error(error),
     }
 }
 

@@ -1,6 +1,5 @@
 use crate::{
-    AppCore, CoreError, HistoryEntry, ImportFailure, ImportMode, ImportReport, PlaybackState,
-    Result, Track, now,
+    AppCore, CoreError, ImportFailure, ImportMode, ImportReport, PlaybackState, Result, Track, now,
 };
 use lofty::{
     file::{AudioFile, TaggedFileExt},
@@ -16,8 +15,26 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-const TRACK_SELECT: &str = "SELECT t.*,COALESCE(p.favorite,0) AS favorite FROM tracks t
-    LEFT JOIN rust_track_preferences p ON p.track_id=t.id";
+macro_rules! track_columns {
+    () => {
+        "t.*,(f.media_id IS NOT NULL) AS favorite"
+    };
+}
+macro_rules! favorite_join {
+    () => {
+        "LEFT JOIN rust_favorites f ON f.media_id=t.id"
+    };
+}
+/// Track columns plus the derived `favorite` flag; pair with `FAVORITE_JOIN`.
+pub(crate) const TRACK_COLUMNS: &str = track_columns!();
+/// Join that provides the favorite flag for the `t` (tracks) alias.
+pub(crate) const FAVORITE_JOIN: &str = favorite_join!();
+const TRACK_SELECT: &str = concat!(
+    "SELECT ",
+    track_columns!(),
+    " FROM tracks t ",
+    favorite_join!()
+);
 
 pub fn supported_media(path: &Path) -> bool {
     path.extension().and_then(|x| x.to_str()).is_some_and(|x| {
@@ -214,16 +231,8 @@ impl AppCore {
             .ok_or_else(|| CoreError::NotFound(id.into()))
     }
 
-    pub fn set_favorite(&self, id: &str, favorite: bool) -> Result<()> {
-        self.connection()?.execute(
-            "INSERT INTO rust_track_preferences(track_id,favorite) VALUES(?1,?2)
-            ON CONFLICT(track_id) DO UPDATE SET favorite=excluded.favorite",
-            params![id, favorite],
-        )?;
-        Ok(())
-    }
-
-    /// Remove the database entry and its playlist/history membership. The
+    /// Remove the database entry, its playlist memberships, favorite and
+    /// listening events. The
     /// original file is intentionally never removed by this operation, and
     /// automatic scans keep it excluded until an explicit import restores it.
     pub fn remove_track(&self, id: &str) -> Result<()> {
@@ -278,6 +287,11 @@ impl AppCore {
         if tx.execute("DELETE FROM tracks WHERE id=?1", [id])? == 0 {
             return Err(CoreError::NotFound(id.into()));
         }
+        // Favorites and events key both local and remote media, so no foreign
+        // key can cascade; the removal owns their cleanup.
+        tx.execute("DELETE FROM rust_favorites WHERE media_id=?1", [id])?;
+        tx.execute("DELETE FROM rust_listening_events WHERE media_id=?1", [id])?;
+        tx.execute("DELETE FROM rust_audio_features WHERE media_id=?1", [id])?;
         if path.is_absolute() {
             tx.execute(
                 "INSERT INTO rust_library_exclusions(path,removed_at) VALUES(?1,?2)
@@ -864,32 +878,5 @@ impl AppCore {
                 ..Default::default()
             }),
         }
-    }
-
-    pub fn record_playback(&self, id: &str, position_seconds: f64) -> Result<()> {
-        if !position_seconds.is_finite() || position_seconds < 0.0 {
-            return Err(CoreError::Invalid("Invalid playback position".into()));
-        }
-        let mut db = self.connection()?;
-        let tx = db.transaction()?;
-        tx.execute("INSERT INTO rust_playback_history(track_id,played_at,position_seconds) VALUES(?1,?2,?3)",params![id,now(),position_seconds])?;
-        tx.execute("DELETE FROM rust_playback_history WHERE id NOT IN (SELECT id FROM rust_playback_history ORDER BY played_at DESC,id DESC LIMIT 500)",[])?;
-        tx.commit()?;
-        Ok(())
-    }
-
-    pub fn history(&self, limit: usize) -> Result<Vec<HistoryEntry>> {
-        let db = self.connection()?;
-        let mut query = db.prepare("SELECT t.*,COALESCE(p.favorite,0) AS favorite,h.played_at,h.position_seconds
-            FROM rust_playback_history h JOIN tracks t ON t.id=h.track_id
-            LEFT JOIN rust_track_preferences p ON p.track_id=t.id ORDER BY h.played_at DESC,h.id DESC LIMIT ?1")?;
-        let rows = query.query_map([limit.min(500) as i64], |row| {
-            Ok(HistoryEntry {
-                track: self.row_to_track(row)?,
-                played_at: row.get("played_at")?,
-                position_seconds: row.get("position_seconds")?,
-            })
-        })?;
-        Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 }

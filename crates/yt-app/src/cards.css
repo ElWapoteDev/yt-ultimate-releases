@@ -1,0 +1,543 @@
+/* Browse building blocks: shelves, cover cards, artist circles, generated
+   animated covers and detail heroes. Included once at the root. Only
+   transform and opacity animate. */
+
+.browse-shelf {
+  margin-bottom: 34px;
+}
+
+.browse-shelf__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.browse-shelf__titles {
+  min-width: 0;
+}
+
+.browse-shelf__title {
+  overflow: hidden;
+  font-size: 20px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browse-shelf__sub {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browse-shelf__scroller {
+  display: grid;
+  grid-auto-columns: 168px;
+  grid-auto-flow: column;
+  gap: 18px;
+  margin: 0 calc(var(--page-x) * -1);
+  padding: 4px var(--page-x) 12px;
+  overflow-x: auto;
+  scroll-padding-inline: var(--page-x);
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+
+.browse-shelf__scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.browse-shelf__scroller--wide {
+  grid-auto-columns: minmax(300px, 360px);
+}
+
+.browse-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 26px 18px;
+}
+
+.cover-card {
+  position: relative;
+  min-width: 0;
+  scroll-snap-align: start;
+}
+
+.cover-card__open {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cover-card__art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  box-shadow: 0 0 0 0.5px var(--border-subtle);
+  transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+}
+
+.cover-card__art .thumb,
+.cover-card__art .thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cover-card__art .thumb img {
+  transition: transform 700ms var(--ease-out);
+}
+
+.cover-card:hover .cover-card__art {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42);
+}
+
+.cover-card:hover .cover-card__art .thumb img {
+  transform: scale(1.06);
+}
+
+.cover-card--round .cover-card__art {
+  border-radius: 50%;
+}
+
+.cover-card--round .cover-card__open {
+  align-items: center;
+  text-align: center;
+}
+
+/* Centered children shrink to their text; capping them keeps the ellipsis. */
+.cover-card__title,
+.cover-card__sub {
+  max-width: 100%;
+}
+
+.cover-card__title {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cover-card--active .cover-card__title {
+  color: var(--accent);
+}
+
+.cover-card__sub {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cover-card__play {
+  position: absolute;
+  right: 8px;
+  top: calc(100% - 92px);
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  color: var(--on-accent);
+  background: var(--accent);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+  cursor: pointer;
+}
+
+.cover-card:hover .cover-card__play,
+.cover-card__play:focus-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Generated covers: three drifting color fields in the cover palette. */
+
+.generated-cover {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+  container-type: inline-size;
+  background: linear-gradient(135deg, var(--cover-1), var(--cover-3));
+}
+
+.generated-cover__blob {
+  position: absolute;
+  width: 90%;
+  height: 90%;
+  border-radius: 50%;
+  filter: blur(26px);
+  opacity: 0.9;
+  will-change: transform;
+}
+
+.generated-cover__blob--a {
+  top: -30%;
+  left: -20%;
+  background: var(--cover-2);
+  animation: cover-drift-a 14s ease-in-out infinite alternate;
+}
+
+.generated-cover__blob--b {
+  right: -35%;
+  bottom: -25%;
+  background: var(--cover-1);
+  animation: cover-drift-b 17s ease-in-out infinite alternate;
+}
+
+.generated-cover__blob--c {
+  left: 20%;
+  bottom: -45%;
+  background: var(--cover-3);
+  animation: cover-drift-c 21s ease-in-out infinite alternate;
+}
+
+@keyframes cover-drift-a {
+  to { transform: translate3d(28%, 22%, 0) scale(1.15); }
+}
+
+@keyframes cover-drift-b {
+  to { transform: translate3d(-30%, -18%, 0) scale(0.9); }
+}
+
+@keyframes cover-drift-c {
+  to { transform: translate3d(-12%, -40%, 0) scale(1.2); }
+}
+
+.generated-cover__grain {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 0% 100%, rgba(0, 0, 0, 0.32), transparent 60%);
+}
+
+.generated-cover__content {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 14px;
+  color: #fff;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.35);
+}
+
+.generated-cover__icon {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  opacity: 0.85;
+}
+
+.generated-cover__eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+  text-transform: uppercase;
+}
+
+/* The title scales with the cover so long single words («Descubrimiento»)
+   fit small cards; a word that still cannot fit breaks. */
+.generated-cover__title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: clamp(13px, 9.5cqi, 28px);
+  overflow-wrap: anywhere;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+/* Detail heroes for artist, album and collection pages. */
+
+.detail-page {
+  position: relative;
+  min-height: 100%;
+}
+
+.detail-hero {
+  position: relative;
+  margin: calc(var(--titlebar-height) * -1) calc(var(--page-x) * -1) 28px;
+  padding: calc(var(--titlebar-height) + 36px) var(--page-x) 32px;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.detail-hero__backdrop {
+  position: absolute;
+  inset: -20%;
+  z-index: -2;
+  opacity: 0.6;
+  filter: blur(70px) saturate(1.5);
+  transform: scale(1.1);
+}
+
+.detail-hero__backdrop .thumb,
+.detail-hero__backdrop .thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The glow drifts as its own unfiltered layer; the blurred backdrop stays
+   still because animating a large blur costs every frame on modest GPUs. */
+.detail-hero__shade {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+}
+
+.detail-hero__shade::before,
+.detail-hero__shade::after {
+  position: absolute;
+  content: "";
+}
+
+.detail-hero__shade::before {
+  inset: -30%;
+  background:
+    radial-gradient(45% 55% at 20% 25%, color-mix(in oklab, var(--cover-1, var(--accent)) 42%, transparent), transparent 70%),
+    radial-gradient(40% 50% at 80% 35%, color-mix(in oklab, var(--cover-2, var(--accent)) 26%, transparent), transparent 70%);
+  animation: hero-glow-drift 26s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.detail-hero__shade::after {
+  inset: 0;
+  background: linear-gradient(180deg, transparent 30%, var(--bg-canvas));
+}
+
+@keyframes hero-glow-drift {
+  to { transform: translate3d(9%, 6%, 0) rotate(8deg) scale(1.08); }
+}
+
+/* Artist banner: the wide photo fills the hero and the name sits on it. */
+.detail-hero--banner {
+  display: flex;
+  align-items: flex-end;
+  min-height: clamp(300px, 46vh, 480px);
+}
+
+.detail-hero__banner {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+}
+
+.detail-hero__banner .thumb,
+.detail-hero__banner .thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 30%;
+}
+
+.detail-hero__banner .thumb img {
+  animation: hero-art-breathe 24s ease-in-out infinite alternate;
+}
+
+.detail-hero--banner .detail-hero__shade::after {
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.45), transparent 60%),
+    linear-gradient(180deg, transparent 35%, color-mix(in oklab, var(--bg-canvas) 75%, transparent) 75%, var(--bg-canvas));
+}
+
+.detail-hero--banner .detail-hero__title {
+  font-size: clamp(40px, 6.2vw, 88px);
+  text-shadow: 0 4px 30px rgba(0, 0, 0, 0.45);
+}
+
+.detail-hero--banner .detail-hero__eyebrow,
+.detail-hero--banner .detail-hero__facts {
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.detail-hero__art--hidden {
+  display: none;
+}
+
+.detail-hero__back {
+  position: absolute;
+  top: calc(var(--titlebar-height) - 6px);
+  left: calc(var(--page-x) - 8px);
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.32);
+  cursor: pointer;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.detail-hero__back:hover {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.detail-hero__body {
+  display: flex;
+  align-items: flex-end;
+  gap: 28px;
+}
+
+.detail-hero__art {
+  flex: none;
+  width: 220px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5);
+}
+
+.detail-hero__art--round {
+  border-radius: 50%;
+}
+
+.detail-hero__art .thumb,
+.detail-hero__art .thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Real artwork breathes slowly inside its frame, like motion artwork. */
+.detail-hero__art .thumb img {
+  animation: hero-art-breathe 20s ease-in-out infinite alternate;
+  transform-origin: 50% 40%;
+}
+
+@keyframes hero-art-breathe {
+  to { transform: scale(1.07) translate3d(-1.5%, -1%, 0); }
+}
+
+.detail-hero__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.detail-hero__eyebrow {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.detail-hero__title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: clamp(30px, 4.4vw, 58px);
+  font-weight: 850;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.detail-hero__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.detail-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.detail-section-title {
+  margin: 8px 0 12px;
+  font-size: 20px;
+  font-weight: 750;
+}
+
+.detail-about {
+  max-width: 760px;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+.detail-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 30px;
+}
+
+.detail-stat {
+  padding: 14px;
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--hover-fill);
+}
+
+.detail-stat__value {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.detail-stat__label {
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .detail-hero__art {
+    width: 150px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .generated-cover__blob,
+  .detail-hero__shade::before,
+  .detail-hero__art .thumb img,
+  .detail-hero__banner .thumb img {
+    animation: none;
+  }
+
+  .cover-card__art .thumb img {
+    transition: none;
+  }
+
+  .cover-card:hover .cover-card__art .thumb img {
+    transform: none;
+  }
+}

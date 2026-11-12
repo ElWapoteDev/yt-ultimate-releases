@@ -37,7 +37,7 @@ pub(super) fn use_media_controls(state: AppState) {
             let controls = match result {
                 Ok(controls) => Some(controls),
                 Err(error) => {
-                    state.notify(format!(
+                    state.notify_error(format!(
                         "No se pudieron activar los controles multimedia del sistema: {error}"
                     ));
                     None

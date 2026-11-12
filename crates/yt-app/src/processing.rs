@@ -1,9 +1,35 @@
-use crate::state::AppState;
+use crate::{
+    activity::{Stop, Tone},
+    state::{AppState, Page},
+};
 use dioxus::prelude::*;
 use std::io::{Read, Write};
 use std::path::Path;
 use yt_core::{AppCore, JobStatus, Track};
 use yt_media::CancellationToken;
+
+pub(crate) const REQUIRES_METAL: bool = cfg!(all(feature = "metal-stems", target_os = "macos"));
+pub(crate) const SEPARATOR_INCLUDED: bool = cfg!(any(
+    feature = "native-stems",
+    all(feature = "metal-stems", target_os = "macos")
+));
+
+pub(crate) fn separator_label() -> &'static str {
+    #[cfg(any(
+        feature = "native-stems",
+        all(feature = "metal-stems", target_os = "macos")
+    ))]
+    {
+        yt_media::STEM_MODEL_LABEL
+    }
+    #[cfg(not(any(
+        feature = "native-stems",
+        all(feature = "metal-stems", target_os = "macos")
+    )))]
+    {
+        "Modelo local"
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum ProcessingTask {
@@ -31,23 +57,23 @@ pub fn start_processing(mut state: AppState, id: String, task: ProcessingTask) -
     let track = match state.services.core.track(&id) {
         Ok(t) => t,
         Err(e) => {
-            state.notify(e.to_string());
+            state.notify_error(e.to_string());
             return false;
         }
     };
     let metadata = state.services.core.track_metadata(&id).unwrap_or_default();
     if track.missing || track.path.as_os_str().is_empty() {
-        state.notify("El archivo ya no está disponible");
+        state.notify_warning("El archivo ya no está disponible");
         return false;
     }
     let fingerprint = matches!(task, ProcessingTask::Quality)
         || matches!(task, ProcessingTask::Variant(_, label) if label != "Ardilla");
     if fingerprint && (track.media_type != "audio" || metadata["playlist"] == "Protegidos") {
-        state.notify("Elige un audio original para modificar el fingerprint");
+        state.notify_warning("Elige un audio original para modificar el fingerprint");
         return false;
     }
     if matches!(task, ProcessingTask::StemsFormat(_)) && metadata["playlist"] == "Separaciones" {
-        state.notify("Esta pista ya es una separación");
+        state.notify_warning("Esta pista ya es una separación");
         return false;
     }
     if fingerprint
@@ -63,7 +89,7 @@ pub fn start_processing(mut state: AppState, id: String, task: ProcessingTask) -
                     && job.payload["track_id"] == id
             })
     {
-        state.notify("Esta canción ya tiene una modificación en curso");
+        state.notify_warning("Esta canción ya tiene una modificación en curso");
         return false;
     }
     let format = match task {
@@ -71,7 +97,7 @@ pub fn start_processing(mut state: AppState, id: String, task: ProcessingTask) -
         ProcessingTask::Variant(_, "Ardilla") => chipmunk_format(&track),
         _ => yt_audio::AudioFormat::Flac,
     };
-    let job=match state.services.core.create_job(task.kind(),&serde_json::json!({"title":track.title,"track_id":track.id,"format":format.extension().to_uppercase()})) { Ok(j)=>j,Err(e)=>{state.notify(e.to_string());return false;} };
+    let job=match state.services.core.create_job(task.kind(),&serde_json::json!({"title":track.title,"track_id":track.id,"format":format.extension().to_uppercase()})) { Ok(j)=>j,Err(e)=>{state.notify_error(e.to_string());return false;} };
     let task = match task {
         ProcessingTask::Variant(options, label) if label != "Ardilla" => ProcessingTask::Variant(
             yt_audio::VariantOptions::variation(&job.id, options.pitch_semitones >= 1.75),
@@ -92,7 +118,29 @@ pub fn start_processing(mut state: AppState, id: String, task: ProcessingTask) -
         ProcessingTask::Variant(..) => "Modificando audio y verificando huella…".into(),
         _ => "Separación iniciada".into(),
     };
-    state.notify(start_message);
+    let (icon, task_title, page) = match task {
+        ProcessingTask::Quality => (
+            "gauge",
+            format!("CALIDAD de «{}»", track.title),
+            Page::Library,
+        ),
+        ProcessingTask::Variant(_, "Ardilla") => (
+            "music",
+            format!("Versión ardilla de «{}»", track.title),
+            Page::Library,
+        ),
+        ProcessingTask::Variant(..) => (
+            "activity",
+            format!("Variación de «{}»", track.title),
+            Page::Library,
+        ),
+        ProcessingTask::StemsFormat(_) => (
+            "scissors",
+            format!("Separando «{}»", track.title),
+            Page::Stems,
+        ),
+    };
+    state.announce(Tone::Info, start_message, Some(page));
     state.plugin_event(
         &format!("{event_prefix}.queued"),
         serde_json::json!({"job_id":job.id,"track_id":track.id,"kind":task.kind()}),
@@ -102,6 +150,14 @@ pub fn start_processing(mut state: AppState, id: String, task: ProcessingTask) -
         .cancellations
         .write()
         .insert(job.id.clone(), token.clone());
+    let activity = state
+        .begin_task(icon, task_title)
+        .page(page)
+        .stop(Stop::Job {
+            key: job.id.clone(),
+            label: "Cancelar",
+        });
+    activity.detail("En cola");
     dioxus::core::spawn_forever(async move {
         let _permit = match state.services.processing_slots.acquire(&token).await {
             Ok(permit) => permit,
@@ -111,6 +167,8 @@ pub fn start_processing(mut state: AppState, id: String, task: ProcessingTask) -
                 } else {
                     JobStatus::Error
                 };
+                drop(activity);
+                report_stopped(&state, &track.title, status, &error, page);
                 let _ = state.services.core.update_job(
                     &job.id,
                     status,
@@ -141,8 +199,8 @@ pub fn start_processing(mut state: AppState, id: String, task: ProcessingTask) -
         let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<(f64, String)>(8);
         let notification_title = track.title.clone();
         let mut worker = tokio::task::spawn_blocking(move || {
-            let last_progress = std::cell::Cell::new(-1i64);
-            let update = |percent, message: &str| {
+            let last_progress = std::cell::RefCell::new((-1i64, String::new()));
+            let update = |percent: f64, message: &str| {
                 let _ = core.update_job(
                     &work_id,
                     JobStatus::Running,
@@ -154,11 +212,12 @@ pub fn start_processing(mut state: AppState, id: String, task: ProcessingTask) -
                 if let Some(host) = &plugin_host {
                     let _ = host.dispatch_event(yt_plugins::PluginEvent { name: format!("{event_prefix}.progress"), payload: serde_json::json!({"job_id":work_id,"progress":percent,"message":message}) });
                 }
-                if fingerprint || matches!(task, ProcessingTask::Variant(_, "Ardilla")) {
-                    let rounded = percent.round() as i64;
-                    if rounded != last_progress.replace(rounded) {
-                        let _ = progress_tx.try_send((percent, message.to_owned()));
-                    }
+                // Forward only whole-percent or wording changes, so the interface
+                // re-renders per visible change rather than per processed block.
+                let next = (percent.round() as i64, message.to_owned());
+                if *last_progress.borrow() != next {
+                    let _ = progress_tx.try_send((percent, message.to_owned()));
+                    *last_progress.borrow_mut() = next;
                 }
             };
             update(0.0, "Preparando audio");
@@ -168,12 +227,13 @@ pub fn start_processing(mut state: AppState, id: String, task: ProcessingTask) -
             tokio::select! {
                 result=&mut worker=>break result,
                 Some((percent,message))=progress_rx.recv()=>{
-                    state.notify(if matches!(task,ProcessingTask::Variant(_,"Ardilla")){format!("Creando versión ardilla de \"{notification_title}\"… {percent:.0}%")}else{format!("{message}… {percent:.0}%")});
+                    activity.progress(percent, message);
                 }
             }
         }
         .map_err(|e| e.to_string())
         .and_then(|v| v);
+        drop(activity);
         state.cancellations.write().remove(&job.id);
         let (status, output, error) = match result {
             Ok(output) => (JobStatus::Completed, output, String::new()),
@@ -204,19 +264,21 @@ pub fn start_processing(mut state: AppState, id: String, task: ProcessingTask) -
             &output,
             &error,
         ) {
-            state.notify(e.to_string());
-        } else {
-            state.notify(if error.is_empty() {
+            state.notify_error(e.to_string());
+        } else if status == JobStatus::Completed {
+            state.announce(
+                Tone::Success,
                 if matches!(task, ProcessingTask::Variant(_, "Ardilla")) {
                     format!("Lista: \"{notification_title} (Ardilla)\". Está en Canciones.")
                 } else if fingerprint {
                     fingerprint_completion_summary(&output["fingerprint_verification"])
                 } else {
-                    "Separación completada".into()
-                }
-            } else {
-                error
-            });
+                    format!("Separación completada: «{notification_title}»")
+                },
+                Some(page),
+            );
+        } else {
+            report_stopped(&state, &notification_title, status, &error, page);
         }
         state.refresh();
         state.plugin_event(
@@ -232,6 +294,18 @@ pub fn start_processing(mut state: AppState, id: String, task: ProcessingTask) -
         );
     });
     true
+}
+
+fn report_stopped(state: &AppState, title: &str, status: JobStatus, error: &str, page: Page) {
+    if status == JobStatus::Canceled {
+        state.notify(format!("Cancelado: «{title}»"));
+    } else {
+        state.announce(
+            Tone::Error,
+            format!("No se pudo procesar «{title}»: {error}"),
+            Some(page),
+        );
+    }
 }
 
 fn process(
@@ -295,17 +369,30 @@ fn process(
             )
         }
         ProcessingTask::StemsFormat(_) | ProcessingTask::Quality => {
-            #[cfg(not(feature = "native-stems"))]
+            #[cfg(not(any(
+                feature = "native-stems",
+                all(feature = "metal-stems", target_os = "macos")
+            )))]
             {
                 Err("Esta edición no incluye el modelo de separación de voz".into())
             }
-            #[cfg(feature = "native-stems")]
+            #[cfg(any(
+                feature = "native-stems",
+                all(feature = "metal-stems", target_os = "macos")
+            ))]
             {
                 let model = model_path()?;
                 let prepared = work.path().join("prepared.wav");
                 yt_quality::prepare_source(&track.path, &prepared, token)
                     .map_err(|e| e.to_string())?;
-                progress(2.0, "Cargando modelo");
+                progress(
+                    2.0,
+                    if REQUIRES_METAL {
+                        "Cargando modelo en la GPU"
+                    } else {
+                        "Cargando modelo"
+                    },
+                );
                 let separator = yt_media::StemSeparator::load(model).map_err(|e| e.to_string())?;
                 let vocals = work.path().join("vocals.wav");
                 let instrumental = work.path().join("instrumental.wav");
@@ -318,7 +405,11 @@ fn process(
                     .separate(&prepared, &vocals, &instrumental, token.clone(), |p| {
                         progress(
                             2.0 + p.fraction().unwrap_or(0.0) * scale,
-                            "Separando vocales e instrumental",
+                            if REQUIRES_METAL {
+                                "Separando vocales e instrumental en Metal"
+                            } else {
+                                "Separando vocales e instrumental"
+                            },
                         )
                     })
                     .map_err(|e| e.to_string())?;
@@ -454,7 +545,10 @@ fn variant_profile(options: yt_audio::VariantOptions, rate: u32) -> serde_json::
     serde_json::json!({"version":3,"intensity":if options.pitch_semitones>=1.75{"strong"}else{"balanced"},"sample_rate":rate,"output_format":"FLAC","pitch_semitones":(options.pitch_semitones*100.0).round()/100.0,"speed":(options.speed*1000.0).round()/1000.0,"rate_hz":rate_hz as u32,"tempo_ratio":(options.speed/(rate_hz/rate as f64)*10_000_000.0).round()/10_000_000.0,"low_gain_db":(options.low_gain_db*1000.0).round()/1000.0,"high_gain_db":(options.high_gain_db*1000.0).round()/1000.0,"engine":"rust-soundtouch"})
 }
 
-#[cfg(feature = "native-stems")]
+#[cfg(any(
+    feature = "native-stems",
+    all(feature = "metal-stems", target_os = "macos")
+))]
 fn quality_profile(
     dsp: &yt_quality::QualityReport,
     audit: &yt_quality::VerificationReport,
@@ -466,7 +560,7 @@ fn quality_profile(
         "speed":dsp.shared.mean_speed_ratio,"rate_hz":44100,"tempo_ratio":dsp.shared.mean_speed_ratio,
         "instrumental_method":"dynamic_spectral_eq","max_spectral_gain_db":6.0,
         "processing_target":"instrumental_then_full_mix","vocals_preserved":false,"vocal_processing":"shared_smooth_remap",
-        "separator_model":"BS-RoFormer viperx SDR 12.9755","engine":"rust-soxr",
+        "separator_model":separator_label(),"engine":"rust-soxr",
         "instrumental_processing":dsp.instrumental,"instrumental_gain":dsp.mix.instrumental_gain,
         "shared_processing":dsp.shared,"dsp":dsp,
         "pre_remap_vocal_integrity":{"status":"verified","scope":"separated_stem_before_shared_remap","frames":dsp.shared.input_frames,"channels":2,"sample_rate":44100,"max_abs_error":dsp.pre_remap_pcm24_error,"tolerance":2.0f64.powi(-23),"bit_depth":24,"reference_format":"PCM24 values in WAV"},
@@ -567,7 +661,7 @@ fn publish(
         rollback_generated(core, &imported.id)?;
         return Err(error.to_string());
     }
-    let metadata = serde_json::json!({"playlist":group,"source_file":track.filename,"quality":extension.to_uppercase(),"separator_model":if group=="Separaciones"{"BS-RoFormer viperx SDR 12.9755"}else{""},"stem":match label{"Vocals"|"Vocales"=>"vocals","Instrumental"=>"instrumental",_=>""}});
+    let metadata = serde_json::json!({"playlist":group,"source_file":track.filename,"quality":extension.to_uppercase(),"separator_model":if group=="Separaciones"{separator_label()}else{""},"stem":match label{"Vocals"|"Vocales"=>"vocals","Instrumental"=>"instrumental",_=>""}});
     if let Err(error) = core.merge_track_metadata(&imported.id, &metadata) {
         rollback_generated(core, &imported.id)?;
         return Err(error.to_string());
@@ -626,24 +720,17 @@ fn rollback_generated(core: &AppCore, id: &str) -> Result<(), String> {
         .map_err(|e| format!("No se pudo retirar el resultado incompleto: {e}"))
 }
 
-#[cfg(feature = "native-stems")]
+#[cfg(any(
+    feature = "native-stems",
+    all(feature = "metal-stems", target_os = "macos")
+))]
 pub(crate) fn model_path() -> Result<std::path::PathBuf, String> {
-    if let Some(path) = std::env::var_os("YTU_STEM_MODEL") {
-        return Ok(path.into());
-    }
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let dir = exe.parent().ok_or("Carpeta de aplicación no disponible")?;
-    let mut paths = vec![
-        dir.join("../Resources/models/bs-roformer-v1.pt"),
-        dir.join("resources/models/bs-roformer-v1.pt"),
-        dir.join("models/bs-roformer-v1.pt"),
-    ];
-    if cfg!(debug_assertions) {
-        paths.push(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../yt-media/models/bs-roformer-v1.pt"),
-        );
-    }
-    paths.into_iter().find(|p| p.is_file()).ok_or_else(|| {
+    crate::bundled::model(
+        "YTU_STEM_MODEL",
+        yt_media::STEM_MODEL_FILENAME,
+        "../yt-media/models",
+    )
+    .ok_or_else(|| {
         "No se encontró el modelo. Reinstala la edición con herramientas de audio.".into()
     })
 }
@@ -651,6 +738,45 @@ pub(crate) fn model_path() -> Result<std::path::PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(all(feature = "metal-stems", target_os = "macos"))]
+    #[test]
+    #[ignore = "requires Metal and the installed separation model"]
+    fn metal_stems_publish_both_tracks_with_the_selected_model() {
+        let profile = tempfile::tempdir().unwrap();
+        let core = AppCore::open(profile.path()).unwrap();
+        let source = core
+            .import_bytes(
+                "Metal smoke.wav",
+                include_bytes!("../../yt-quality/tests/fixtures/input.wav"),
+            )
+            .unwrap();
+        let used_metal = std::cell::Cell::new(false);
+        let result = process(
+            &core,
+            core.library_dir(),
+            &source,
+            "metal-smoke",
+            ProcessingTask::StemsFormat(yt_audio::AudioFormat::Flac),
+            &CancellationToken::new(),
+            |_, message| {
+                if message == "Separando vocales e instrumental en Metal" {
+                    used_metal.set(true);
+                }
+            },
+        )
+        .unwrap();
+        assert!(used_metal.get());
+        for kind in ["vocals", "instrumental"] {
+            let id = result[kind].as_str().unwrap();
+            let output = core.track(id).unwrap();
+            assert!(output.path.is_file());
+            let metadata = core.track_metadata(id).unwrap();
+            assert_eq!(metadata["stem"], kind);
+            assert_eq!(metadata["separator_model"], yt_media::STEM_MODEL_LABEL);
+        }
+    }
+
     #[test]
     fn fingerprint_result_keeps_persistent_profile_and_original_bytes() {
         let temp = tempfile::tempdir().unwrap();
@@ -717,7 +843,10 @@ mod tests {
                 .contains("Reconocimiento externo sin comprobar.")
         );
     }
-    #[cfg(feature = "native-stems")]
+    #[cfg(any(
+        feature = "native-stems",
+        all(feature = "metal-stems", target_os = "macos")
+    ))]
     #[test]
     fn quality_metadata_keeps_verified_final_and_pre_remap_audits() {
         let dir = tempfile::tempdir().unwrap();

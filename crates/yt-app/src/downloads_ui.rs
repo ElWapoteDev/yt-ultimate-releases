@@ -5,11 +5,11 @@ use crate::{
 };
 use dioxus::prelude::*;
 
-fn active(item: &DownloadView) -> bool {
+pub(crate) fn active(item: &DownloadView) -> bool {
     matches!(item.status.as_str(), "Preparando" | "Descargando")
 }
 
-fn phase(item: &DownloadView) -> (&str, &str, bool) {
+pub(crate) fn phase(item: &DownloadView) -> (&str, &str, bool) {
     if item.status == "Preparando" {
         return ("En cola", "loader", true);
     }
@@ -57,7 +57,7 @@ pub fn DownloadsPage() -> Element {
                 let initial=rows.iter().filter(|row|!active(row)).count();
                 for row in rows.iter().filter(|row| !active(row)) { clear_state.remove_download_history(&row.id); }
                 let remaining=clear_state.downloads.peek().iter().filter(|row|!active(row)).count();
-                if remaining==0 {clear_state.notify("Historial limpio");} else {clear_state.notify(format!("{} registros quitados; {remaining} no se pudieron quitar",initial.saturating_sub(remaining)));}
+                if remaining==0 {clear_state.notify_success("Historial limpio");} else {clear_state.notify_warning(format!("{} registros quitados; {remaining} no se pudieron quitar",initial.saturating_sub(remaining)));}
             }, Icon { name: "trash", size: 13 } "Limpiar historial" } } }
         }
         if items.is_empty() { EmptyState { title: "No hay descargas", hint: "Desde Buscar puedes guardar cualquier canción o vídeo; el progreso aparecerá aquí.", icon: "download-cloud" } }

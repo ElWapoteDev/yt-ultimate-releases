@@ -1,5 +1,24 @@
 # Native vocal separation model
 
+## Metal edition for Apple Silicon
+
+This local edition uses the existing `model_bs_roformer_ep_317_sdr_12.9755.ckpt` vocal checkpoint by viperx. The model takes stereo audio at 44.1 kHz in eight-second windows with 75% overlap. Rust/Candle expands the stored float16 weights to float32 and runs the neural network on Metal with fused attention, rotary embeddings and normalization. Rust also handles the Fourier transforms, overlap, and output. If Metal is unavailable or inference fails, the operation reports an error before publishing the stems.
+
+Convert the original checkpoint with the Rust tool. The tool verifies both the source and output SHA-256 and refuses to overwrite an existing file.
+
+```sh
+cargo run --locked --release -p yt-media --features metal-stems \
+  --example convert_stems_model -- \
+  backend/models/audio-separator/model_bs_roformer_ep_317_sdr_12.9755.ckpt \
+  crates/yt-media/models/bs-roformer-viperx-f16.safetensors
+```
+
+The 305 MiB export has SHA-256 `97307b43fa9a830a80e7d382fab39a746b2a0777ba38cf4d1c7432ef77ad19a2`. It is ignored by version control.
+
+On the development Mac, `stems_probe` processed 18 seconds of stereo audio in 31.8 seconds with Metal and 52.9 seconds with the previous CPU build. Across eight [MUSDB18 excerpts](https://sigsep.github.io/datasets/musdb.html), the largest absolute SDR change for either stem was 0.0034 dB. These measurements describe the tested hardware and excerpts.
+
+## TorchScript edition
+
 `bs-roformer-v1.pt` is an exported TorchScript inference graph of the existing
 `model_bs_roformer_ep_317_sdr_12.9755.ckpt` model. The large binary is deliberately
 ignored by version control and must be supplied to a native-stems distribution.

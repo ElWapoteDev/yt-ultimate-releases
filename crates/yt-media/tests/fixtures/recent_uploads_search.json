@@ -1,0 +1,359 @@
+{
+ "contents": {
+  "twoColumnSearchResultsRenderer": {
+   "primaryContents": {
+    "sectionListRenderer": {
+     "contents": [
+      {
+       "itemSectionRenderer": {
+        "contents": [
+         {
+          "videoRenderer": {
+           "videoId": "fixture0013",
+           "thumbnail": {
+            "thumbnails": [
+             {
+              "url": "https://i.ytimg.com/vi/fixture0013/hqdefault.jpg",
+              "width": 480,
+              "height": 270
+             }
+            ]
+           },
+           "title": {
+            "runs": [
+             {
+              "text": "Upload 1"
+             }
+            ]
+           },
+           "publishedTimeText": {
+            "simpleText": "hace 3 meses"
+           },
+           "lengthText": {
+            "simpleText": "3:46"
+           },
+           "viewCountText": {
+            "simpleText": "134,964,916 vistas"
+           },
+           "ownerBadges": [
+            {
+             "metadataBadgeRenderer": {
+              "style": "BADGE_STYLE_TYPE_VERIFIED_ARTIST"
+             }
+            }
+           ],
+           "ownerText": {
+            "runs": [
+             {
+              "text": "Artist 1"
+             }
+            ]
+           }
+          }
+         },
+         {
+          "videoRenderer": {
+           "videoId": "fixture0014",
+           "thumbnail": {
+            "thumbnails": [
+             {
+              "url": "https://i.ytimg.com/vi/fixture0014/hqdefault.jpg",
+              "width": 480,
+              "height": 270
+             }
+            ]
+           },
+           "title": {
+            "runs": [
+             {
+              "text": "Upload 2"
+             }
+            ]
+           },
+           "publishedTimeText": {
+            "simpleText": "hace 8 meses"
+           },
+           "lengthText": {
+            "simpleText": "2:15"
+           },
+           "viewCountText": {
+            "simpleText": "1,233,922 vistas"
+           },
+           "ownerText": {
+            "runs": [
+             {
+              "text": "Fan Lyrics"
+             }
+            ]
+           },
+           "ownerBadges": []
+          }
+         },
+         {
+          "videoRenderer": {
+           "videoId": "fixture0015",
+           "thumbnail": {
+            "thumbnails": [
+             {
+              "url": "https://i.ytimg.com/vi/fixture0015/hqdefault.jpg",
+              "width": 480,
+              "height": 270
+             }
+            ]
+           },
+           "title": {
+            "runs": [
+             {
+              "text": "Upload 3"
+             }
+            ]
+           },
+           "publishedTimeText": {
+            "simpleText": "hace 2 meses"
+           },
+           "lengthText": {
+            "simpleText": "3:46"
+           },
+           "viewCountText": {
+            "simpleText": "20,537,914 vistas"
+           },
+           "ownerBadges": [
+            {
+             "metadataBadgeRenderer": {
+              "style": "BADGE_STYLE_TYPE_VERIFIED"
+             }
+            }
+           ],
+           "ownerText": {
+            "runs": [
+             {
+              "text": "Verified Lyrics"
+             }
+            ]
+           }
+          }
+         },
+         {
+          "videoRenderer": {
+           "videoId": "fixture0016",
+           "thumbnail": {
+            "thumbnails": [
+             {
+              "url": "https://i.ytimg.com/vi/fixture0016/hqdefault.jpg",
+              "width": 480,
+              "height": 270
+             }
+            ]
+           },
+           "title": {
+            "runs": [
+             {
+              "text": "Upload 4"
+             }
+            ]
+           },
+           "publishedTimeText": {
+            "simpleText": "hace 3 meses"
+           },
+           "lengthText": {
+            "simpleText": "3:46"
+           },
+           "viewCountText": {
+            "simpleText": "134,964,916 vistas"
+           },
+           "ownerBadges": [
+            {
+             "metadataBadgeRenderer": {
+              "style": "BADGE_STYLE_TYPE_VERIFIED_ARTIST"
+             }
+            }
+           ],
+           "ownerText": {
+            "runs": [
+             {
+              "text": "Artist 1 Fans"
+             }
+            ]
+           }
+          }
+         },
+         {
+          "videoRenderer": {
+           "videoId": "fixture0017",
+           "thumbnail": {
+            "thumbnails": [
+             {
+              "url": "https://i.ytimg.com/vi/fixture0017/hqdefault.jpg",
+              "width": 480,
+              "height": 270
+             }
+            ]
+           },
+           "title": {
+            "runs": [
+             {
+              "text": "Upload 5"
+             }
+            ]
+           },
+           "publishedTimeText": {
+            "simpleText": "hace 10 meses"
+           },
+           "lengthText": {
+            "simpleText": "3:17"
+           },
+           "viewCountText": {
+            "simpleText": "172,782,293 vistas"
+           },
+           "ownerBadges": [
+            {
+             "metadataBadgeRenderer": {
+              "style": "BADGE_STYLE_TYPE_VERIFIED_ARTIST"
+             }
+            }
+           ],
+           "ownerText": {
+            "runs": [
+             {
+              "text": "Artist 1 y Guest 1",
+              "navigationEndpoint": {
+               "showDialogCommand": {
+                "panelLoadingStrategy": {
+                 "inlineContent": {
+                  "dialogViewModel": {
+                   "customContent": {
+                    "listViewModel": {
+                     "listItems": [
+                      {
+                       "listItemViewModel": {
+                        "title": {
+                         "content": "Artist 1",
+                         "attachmentRuns": [
+                          {
+                           "startIndex": 8,
+                           "length": 0,
+                           "element": {
+                            "type": {
+                             "imageType": {
+                              "image": {
+                               "sources": [
+                                {
+                                 "clientResource": {
+                                  "imageName": "AUDIO_BADGE"
+                                 },
+                                 "width": 14,
+                                 "height": 14
+                                }
+                               ]
+                              }
+                             }
+                            }
+                           }
+                          }
+                         ]
+                        }
+                       }
+                      },
+                      {
+                       "listItemViewModel": {
+                        "title": {
+                         "content": "Guest 1",
+                         "attachmentRuns": [
+                          {
+                           "startIndex": 7,
+                           "length": 0,
+                           "element": {
+                            "type": {
+                             "imageType": {
+                              "image": {
+                               "sources": [
+                                {
+                                 "clientResource": {
+                                  "imageName": "AUDIO_BADGE"
+                                 },
+                                 "width": 14,
+                                 "height": 14
+                                }
+                               ]
+                              }
+                             }
+                            }
+                           }
+                          }
+                         ]
+                        }
+                       }
+                      }
+                     ]
+                    }
+                   }
+                  }
+                 }
+                }
+               }
+              }
+             }
+            ]
+           }
+          }
+         },
+         {
+          "lockupViewModel": {
+           "contentId": "fixture0018",
+           "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+           "metadata": {
+            "lockupMetadataViewModel": {
+             "title": {
+              "content": "Upload 6"
+             },
+             "metadata": {
+              "contentMetadataViewModel": {
+               "metadataRows": [
+                {
+                 "metadataParts": [
+                  {
+                   "text": {
+                    "content": "Artist 1",
+                    "attachmentRuns": [
+                     {
+                      "startIndex": 8,
+                      "length": 0,
+                      "element": {
+                       "type": {
+                        "imageType": {
+                         "image": {
+                          "sources": [
+                           {
+                            "clientResource": {
+                             "imageName": "AUDIO_BADGE"
+                            },
+                            "width": 14,
+                            "height": 14
+                           }
+                          ]
+                         }
+                        }
+                       }
+                      }
+                     }
+                    ]
+                   }
+                  }
+                 ]
+                }
+               ]
+              }
+             }
+            }
+           }
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}

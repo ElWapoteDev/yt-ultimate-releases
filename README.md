@@ -8,6 +8,7 @@ La ejecución nueva no utiliza Electron, React, Node.js ni el servicio Python an
 
 ## Funciones del código actual
 
+- Inicio con recomendaciones según lo que escuchas (biblioteca y, si lo activas, YouTube), favoritos de biblioteca y en línea, reproducción automática al terminar la cola, modo DJ con fundidos configurables y vista a pantalla completa. Todo el historial se queda en el equipo y se puede borrar.
 - Biblioteca SQLite, importación por copia o referencia, carpetas, favoritos y playlists ordenadas. Importación M3U/M3U8 y exportación M3U8 con rutas reproducibles; quitar una pista conserva el archivo y evita que el escaneo la añada de nuevo.
 - Carátulas incrustadas extraídas a caché validada. Exportación MP3, WAV24 y FLAC24 con etiquetas y carátulas, incluyendo las nuevas descargas y resultados procesados.
 - Audio local y streaming de YouTube antes de completar la descarga; seek, volumen, velocidad conservando tono, cola, aleatorio, repetición, historial, restauración en pausa y temporizador.
@@ -70,7 +71,9 @@ El instalador Windows publicado pasó instalación silenciosa, arranque con vent
 ```text
 crates/
   yt-app/       Interfaz Dioxus, estado y escritorio
-  yt-core/      Biblioteca, playlists, ajustes e historial SQLite
+  yt-core/      Biblioteca, playlists, favoritos, ajustes, historial de escucha y migraciones SQLite
+  yt-discovery/ Afinidad de escucha y ranking de recomendaciones (puro)
+  yt-theme/     Paletas accesibles a partir de carátulas (puro)
   yt-media/     Reproducción, YouTube, transporte, muxing y separación
   yt-audio/     Conversión, metadatos, variaciones y huellas de audio
   yt-quality/   DSP y auditorías de CALIDAD

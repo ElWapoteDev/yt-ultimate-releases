@@ -15,6 +15,49 @@ pub const MAX_ARTWORK_BYTES: usize = 16 * 1024 * 1024;
 /// Validate actual image bytes before serving or embedding them. SVG and remote
 /// references are not accepted. Decoding is bounded independently of file size.
 pub fn validate_artwork(bytes: &[u8]) -> Result<&'static str> {
+    decode_artwork(bytes).map(|(_, extension)| extension)
+}
+
+/// Decode artwork with the same bounds as [`validate_artwork`] and box-filter it
+/// to at most `side`×`side` opaque RGB samples, for colour analysis that must not
+/// scale with the cover's resolution.
+pub fn artwork_samples(bytes: &[u8], side: u32) -> Result<Vec<[u8; 3]>> {
+    let (image, _) = decode_artwork(bytes)?;
+    let reduced = image::imageops::thumbnail(&image.to_rgba8(), side.max(1), side.max(1));
+    Ok(reduced
+        .pixels()
+        .filter(|pixel| pixel[3] >= 128)
+        .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+        .collect())
+}
+
+/// Width-to-height ratios of YouTube video thumbnails: widescreen frames and
+/// the letterboxed 4:3 sizes.
+const VIDEO_FRAME_RATIOS: [f64; 2] = [16.0 / 9.0, 4.0 / 3.0];
+/// Relative difference within which a cover counts as one of those ratios.
+const VIDEO_FRAME_TOLERANCE: f64 = 0.02;
+
+/// Whether cover bytes are shaped like a video frame (16:9 or 4:3) rather
+/// than square album art. Only the image header is read, under the format and
+/// size bounds of [`validate_artwork`].
+pub fn is_video_frame(bytes: &[u8]) -> Result<bool> {
+    let (format, _) = artwork_format(bytes)?;
+    let (width, height) = ImageReader::with_format(Cursor::new(bytes), format)
+        .into_dimensions()
+        .map_err(|e| CoreError::Invalid(format!("Carátula inválida: {e}")))?;
+    if width == 0 || height == 0 {
+        return Err(CoreError::Invalid(
+            "La carátula no tiene dimensiones válidas".into(),
+        ));
+    }
+    let ratio = f64::from(width) / f64::from(height);
+    Ok(VIDEO_FRAME_RATIOS
+        .iter()
+        .any(|frame| (ratio / frame - 1.0).abs() <= VIDEO_FRAME_TOLERANCE))
+}
+
+/// The allowlisted format of cover bytes and its file extension.
+fn artwork_format(bytes: &[u8]) -> Result<(ImageFormat, &'static str)> {
     if bytes.is_empty() || bytes.len() > MAX_ARTWORK_BYTES {
         return Err(CoreError::Invalid(
             "La carátula debe ocupar entre 1 byte y 16 MiB".into(),
@@ -33,6 +76,11 @@ pub fn validate_artwork(bytes: &[u8]) -> Result<&'static str> {
             ));
         }
     };
+    Ok((format, extension))
+}
+
+fn decode_artwork(bytes: &[u8]) -> Result<(image::DynamicImage, &'static str)> {
+    let (format, extension) = artwork_format(bytes)?;
     let mut limits = Limits::default();
     limits.max_image_width = Some(8192);
     limits.max_image_height = Some(8192);
@@ -47,7 +95,7 @@ pub fn validate_artwork(bytes: &[u8]) -> Result<&'static str> {
             "La carátula no tiene dimensiones válidas".into(),
         ));
     }
-    Ok(extension)
+    Ok((image, extension))
 }
 
 impl AppCore {
@@ -166,5 +214,63 @@ impl AppCore {
             rusqlite::params![descriptor, crate::now(), id],
         )?;
         Ok(path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn png(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
+        let image = image::RgbaImage::from_fn(width, height, |x, y| image::Rgba(pixel(x, y)));
+        let mut bytes = Cursor::new(Vec::new());
+        image.write_to(&mut bytes, ImageFormat::Png).unwrap();
+        bytes.into_inner()
+    }
+
+    #[test]
+    fn samples_are_bounded_by_the_requested_side_and_keep_colours() {
+        let bytes = png(400, 200, |x, _| {
+            if x < 200 {
+                [230, 40, 30, 255]
+            } else {
+                [20, 60, 220, 255]
+            }
+        });
+        let samples = artwork_samples(&bytes, 32).unwrap();
+        assert!(!samples.is_empty() && samples.len() <= 32 * 32);
+        assert!(
+            samples
+                .iter()
+                .any(|[r, g, b]| *r > 200 && *g < 80 && *b < 80)
+        );
+        assert!(samples.iter().any(|[r, _, b]| *b > 180 && *r < 60));
+    }
+
+    #[test]
+    fn transparent_pixels_are_not_sampled_and_invalid_bytes_are_rejected() {
+        let bytes = png(16, 16, |x, _| {
+            if x < 8 {
+                [255, 255, 255, 0]
+            } else {
+                [10, 200, 90, 255]
+            }
+        });
+        let samples = artwork_samples(&bytes, 16).unwrap();
+        assert!(samples.iter().all(|[r, g, _]| *g > 150 && *r < 60));
+        assert!(artwork_samples(b"not an image", 16).is_err());
+        assert!(artwork_samples(&[], 16).is_err());
+    }
+
+    #[test]
+    fn video_frames_are_told_apart_from_album_covers() {
+        let opaque = |_, _| [40, 40, 40, 255];
+        for (width, height) in [(1280, 720), (480, 360), (120, 90), (853, 479)] {
+            assert!(is_video_frame(&png(width, height, opaque)).unwrap());
+        }
+        for (width, height) in [(1400, 1400), (500, 480), (720, 1280)] {
+            assert!(!is_video_frame(&png(width, height, opaque)).unwrap());
+        }
+        assert!(is_video_frame(b"not an image").is_err());
     }
 }

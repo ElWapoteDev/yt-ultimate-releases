@@ -28,7 +28,7 @@ fn play_item(state: &AppState, index: usize) {
         }
         items.remove(index)
     };
-    state.play(item);
+    state.play_with(item, yt_media::Transition::Cut);
     state.persist_playback();
 }
 fn remove_item(state: &AppState, index: usize) {
@@ -59,7 +59,8 @@ pub fn QueuePanel() -> Element {
     let mut dismiss = state.clone();
     let mut clear = state.clone();
     let dragging = use_signal(|| None::<usize>);
-    rsx! {div{class:"queue-backdrop",onclick:move |_|close.queue_open.set(false)}
+    rsx! {style { {include_str!("queue_ui.css")} }
+        div{class:"queue-backdrop",onclick:move |_|close.queue_open.set(false)}
         aside{class:"queue-panel",role:"dialog",aria_label:"Cola de reproducción",
             div{class:"queue-panel__header",span{class:"queue-panel__title","Cola"}div{style:"display:flex;gap:4px;align-items:center",
                 if !queue.is_empty(){button{class:"btn-ghost",style:"font-size:12px;padding:4px 8px",onclick:move |_|{clear.queue.write().clear();clear.persist_playback();},"Vaciar"}}
@@ -71,12 +72,72 @@ pub fn QueuePanel() -> Element {
                     div{class:"row__meta",div{class:"row__title row__title--active",style:"display:flex;align-items:center;gap:5px",if crate::remote::is_remote(&track){Icon{name:"radio",size:11}}span{style:"overflow:hidden;text-overflow:ellipsis","{track.title}"}}div{class:"row__sub",if track.artist.is_empty(){"{size_label(track.size_bytes)}"}else{"{track.artist}"}}}
                 }}
                 if !queue.is_empty(){div{class:"queue-label","A continuación"}for(index,track)in queue.iter().cloned().enumerate(){QueueRow{key:"{index}-{track.id}",track,index,dragging}}}
+                AutoplaySection {}
                 if !history.is_empty(){div{class:"queue-label","Historial"}for(index,track)in history.iter().cloned().enumerate(){div{key:"history-{index}-{track.id}",class:"row queue-row-history",title:"Volver a reproducir",onclick:{let state=state.clone();let track=track.clone();move |_|state.play(track.clone())},Thumb{src:artwork_src(&track),size:"xs",icon_size:Some(12)}div{class:"row__meta",div{class:"row__title","{track.title}"}div{class:"row__sub","{track.artist}"}}}}}
                 if current.is_none()&&queue.is_empty()&&history.is_empty(){EmptyState{title:"Cola vacía",hint:"Reproduce algo o añade canciones con clic derecho → «Reproducir a continuación».",icon:"playlist",compact:true}}
             }
         }
     }
 }
+/// Autoplay switch and the suggestions that play after the queue.
+#[component]
+fn AutoplaySection() -> Element {
+    let state = use_context::<AppState>();
+    let enabled = state.settings.read().playback.autoplay;
+    let repeating = *state.repeat.read() != 0;
+    let suggestions = state.autoplay.upcoming.read().clone();
+    let loading = *state.autoplay.loading.read();
+    let toggle = state.clone();
+    rsx! {
+        div { class: "queue-autoplay",
+            div { class: "queue-autoplay__header",
+                div { class: "queue-autoplay__text",
+                    span { class: "queue-label", style: "padding:0", "Reproducción automática" }
+                    span { class: "queue-autoplay__hint",
+                        if !enabled {
+                            "Desactivada: la música se detiene al terminar la cola"
+                        } else if repeating {
+                            "En pausa mientras la repetición está activa"
+                        } else if loading {
+                            "Buscando música parecida…"
+                        } else {
+                            "Sigue con música parecida a la última canción"
+                        }
+                    }
+                }
+                button {
+                    r#type: "button",
+                    class: if enabled { "settings-switch active" } else { "settings-switch" },
+                    role: "switch",
+                    aria_checked: enabled,
+                    aria_label: "Reproducción automática",
+                    onclick: move |_| toggle.set_autoplay(!enabled),
+                    span {}
+                }
+            }
+            if enabled && !repeating {
+                for (index, track) in suggestions.into_iter().enumerate() {
+                    div {
+                        key: "autoplay-{index}-{track.id}",
+                        class: "row queue-row-history",
+                        title: "Reproducir ahora",
+                        onclick: {
+                            let state = state.clone();
+                            let track = track.clone();
+                            move |_| state.play_with(track.clone(), yt_media::Transition::Cut)
+                        },
+                        Thumb { src: artwork_src(&track), size: "xs", icon_size: Some(12) }
+                        div { class: "row__meta",
+                            div { class: "row__title", "{track.title}" }
+                            div { class: "row__sub", "{track.artist}" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 fn QueueRow(track: Track, index: usize, mut dragging: Signal<Option<usize>>) -> Element {
     let state = use_context::<AppState>();

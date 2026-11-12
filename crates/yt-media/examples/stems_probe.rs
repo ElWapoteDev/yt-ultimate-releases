@@ -1,11 +1,14 @@
-#[cfg(feature = "native-stems")]
+#[cfg(any(
+    feature = "native-stems",
+    all(feature = "metal-stems", target_os = "macos")
+))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::{f32::consts::TAU, path::PathBuf, time::Instant};
-    use yt_media::{CancellationToken, StemSeparator};
+    use yt_media::{CancellationToken, StemSeparator, STEM_MODEL_FILENAME};
     let model = std::env::args()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("crates/yt-media/models/bs-roformer-v1.pt"));
+        .unwrap_or_else(|| PathBuf::from("crates/yt-media/models").join(STEM_MODEL_FILENAME));
     let seconds = std::env::args()
         .nth(2)
         .and_then(|value| value.parse::<u64>().ok())
@@ -79,11 +82,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .file_name()
         .to_string_lossy()
         .ends_with(".part")));
-    println!("Native TorchScript inference passed: {} stereo frames, reconstruction error {}, elapsed {:?}.", receipt.frames, maximum_error, started.elapsed());
+    println!(
+        "Native inference passed: {} stereo frames, reconstruction error {}, elapsed {:?}.",
+        receipt.frames,
+        maximum_error,
+        started.elapsed()
+    );
     Ok(())
 }
 
-#[cfg(not(feature = "native-stems"))]
+#[cfg(not(any(
+    feature = "native-stems",
+    all(feature = "metal-stems", target_os = "macos")
+)))]
 fn main() {
-    eprintln!("This probe requires --features native-stems and LibTorch 2.12.");
+    eprintln!("This probe requires --features metal-stems on macOS or --features native-stems with LibTorch 2.12.");
 }

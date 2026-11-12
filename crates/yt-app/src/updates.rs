@@ -65,10 +65,15 @@ pub(crate) fn use_updates(state: AppState) {
 
 fn use_controller(state: AppState) -> Updates {
     let updater = use_hook(|| {
+        if crate::processing::REQUIRES_METAL {
+            return Err(
+                "Las actualizaciones de esta edición se instalan con su paquete Metal".into(),
+            );
+        }
         Updater::with_edition(
             env!("CARGO_PKG_VERSION"),
             state.services.profile.join("Updates"),
-            if cfg!(feature = "native-stems") {
+            if crate::processing::SEPARATOR_INCLUDED {
                 Edition::Full
             } else {
                 Edition::Base
@@ -83,6 +88,7 @@ fn use_controller(state: AppState) -> Updates {
                 available: None,
                 ready: None,
                 status: previous_install_status(&state)
+                    .or_else(|| updater.as_ref().err().cloned())
                     .unwrap_or_else(|| format!("Versión instalada: {}", env!("CARGO_PKG_VERSION"))),
                 percent: 0,
                 prompt: false,
@@ -171,7 +177,7 @@ impl Updates {
             view.phase = Phase::Failed;
             view.status = message.clone();
         });
-        self.app.notify(message);
+        self.app.notify_error(message);
     }
     fn check(&self, interactive: bool) {
         if self.view.peek().phase.busy() {
@@ -228,7 +234,7 @@ impl Updates {
                         view.status = error.to_string();
                     });
                     if interactive {
-                        this.app.notify(error.to_string());
+                        this.app.notify_error(error.to_string());
                     }
                 }
             }
@@ -352,6 +358,46 @@ impl Updates {
     }
 }
 
+/// The updater's current work as an activity task. Reading it subscribes the
+/// calling component to the root controller's state.
+pub(crate) fn activity_task() -> Option<crate::activity::Task> {
+    let view = ACTIVE.with(|active| active.borrow().as_ref().map(|controller| controller.view))?;
+    let view = view.read();
+    let (title, progress) = match view.phase {
+        Phase::Checking => ("Buscando actualizaciones", None),
+        Phase::Downloading => ("Descargando actualización", Some(view.percent as f64)),
+        Phase::Installing => ("Instalando actualización", None),
+        Phase::Idle | Phase::Ready | Phase::Failed => return None,
+    };
+    Some(crate::activity::Task {
+        key: "update".into(),
+        icon: "download-cloud",
+        title: title.into(),
+        detail: view
+            .available
+            .as_ref()
+            .map(|info| format!("Versión {}", info.version))
+            .unwrap_or_default(),
+        progress,
+        stop: matches!(view.phase, Phase::Checking | Phase::Downloading)
+            .then_some(crate::activity::Stop::Update),
+        page: Some(crate::state::Page::Settings),
+    })
+}
+
+/// Cancel the update check or download in progress, if any.
+pub(crate) fn cancel_active() {
+    ACTIVE.with(|active| {
+        if let Some(token) = active
+            .borrow()
+            .as_ref()
+            .and_then(|controller| controller.cancel.borrow().clone())
+        {
+            token.cancel();
+        }
+    });
+}
+
 /// Native close handlers hide rather than destroy the window while this returns
 /// true. Installation on exit is enabled only by an explicitly saved preference.
 pub(crate) fn request_exit(state: &AppState) -> bool {
@@ -401,7 +447,7 @@ pub fn UpdatePanel() -> Element {
         button{class:"btn-secondary",disabled:view.phase.busy()||updates.updater.is_err(),onclick:move |_|check.check(true),"Buscar actualizaciones"}
         if view.available.is_some() && view.ready.is_none(){button{class:"btn-accent",disabled:view.phase.busy(),onclick:move |_|download.download(),"Descargar actualización"}}
         if view.ready.is_some(){button{class:"btn-accent",disabled:view.phase.busy(),onclick:move |_|{install.install(true);},"Reiniciar e instalar"}
-          button{class:"btn-secondary",disabled:view.phase.busy(),onclick:move |_|{let this=manual.clone();let ready=this.view.peek().ready.clone();if let (Some(update),Ok(updater))=(ready,this.updater.clone()){dioxus::core::spawn_forever(async move {match tokio::task::spawn_blocking(move||updater.open_installer(&update)).await{Ok(Ok(()))=>this.app.notify("Instalador abierto"),Ok(Err(e))=>this.failure(e.to_string()),Err(e)=>this.failure(e.to_string())}});}},"Abrir instalador"}}
+          button{class:"btn-secondary",disabled:view.phase.busy(),onclick:move |_|{let this=manual.clone();let ready=this.view.peek().ready.clone();if let (Some(update),Ok(updater))=(ready,this.updater.clone()){dioxus::core::spawn_forever(async move {match tokio::task::spawn_blocking(move||updater.open_installer(&update)).await{Ok(Ok(()))=>this.app.notify_success("Instalador abierto"),Ok(Err(e))=>this.failure(e.to_string()),Err(e)=>this.failure(e.to_string())}});}},"Abrir instalador"}}
         if matches!(view.phase,Phase::Checking|Phase::Downloading){button{class:"btn-secondary",onclick:move |_|{if let Some(token)=cancel.cancel.borrow().as_ref(){token.cancel();}},"Cancelar"}}
         button{class:"btn-secondary",onclick:move |_|crate::native::open_folder(&logs,&logs.services.profile.join("Updates")),"Abrir logs"}
       }

@@ -187,10 +187,3 @@ impl Default for PlaybackState {
         }
     }
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct HistoryEntry {
-    pub track: Track,
-    pub played_at: f64,
-    pub position_seconds: f64,
-}

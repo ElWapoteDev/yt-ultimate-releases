@@ -25,16 +25,21 @@ they are not an exhaustive inventory of every transitive Cargo dependency.
 | Ogg | bundled by ogg_next_sys 0.1.5 through vorbis_rs 0.5.6 | BSD-3-Clause; see Ogg-COPYING.txt |
 | SoXR | native source included through soxr-sys 0.1.3 | LGPL-2.1-or-later; see SoXR-LICENSE.txt. The wrapper's Apache-2.0 declaration does not replace the native library license |
 | LibTorch, optional vocal-separation edition | 2.12.0, https://github.com/pytorch/pytorch | See LibTorch-LICENSE.txt, including its third-party notices |
+| Candle core, nn and Metal kernels, optional Metal vocal-separation edition | 0.11.1, https://github.com/huggingface/candle | MIT or Apache-2.0; standard Apache-2.0 text included |
+| candle-roformer inference adaptation, optional Metal vocal-separation edition | 0.1.0, https://github.com/AlexeyShirshov/candle-roformer | MIT; see candle-roformer-LICENSE-MIT.txt and candle-roformer-NOTICE.txt in the Metal bundle |
+| RustFFT, optional Metal vocal-separation edition | 6.4.1, https://github.com/ejmahler/RustFFT | MIT or Apache-2.0; standard Apache-2.0 text included |
 | tch / torch-sys | tch-rs commit bbf49e6, https://github.com/LaurentMazare/tch-rs | MIT or Apache-2.0; MIT text included |
 | Microsoft Visual C++ runtime, Windows vocal-separation edition | 14.44.35211, official vc_redist.x64.exe | Microsoft-VC-Runtime-License.rtf; app-local x64 msvcp140/vcruntime140/vcruntime140_1 DLLs |
+| GeoNames place and country names | export dump of 2026-11-10, https://www.geonames.org | CC BY 4.0, https://creativecommons.org/licenses/by/4.0/. Contains data from GeoNames: places of more than 15,000 people and capitals with their Spanish names, coordinates and populations, selected and reduced into `crates/yt-geo/data` of the source project |
 
 The original license texts are included without modification. The local LAME
 build patch and its source are retained under `vendor/mp3lame-sys` in the source
 project. No LAME codec implementation was changed by that patch.
 
-The optional BS-RoFormer model is a separate trained asset. Its exported graph,
-provenance and checksum are documented in `crates/yt-media/models/README.md` in
-the source project; software-library notices do not grant rights to that model.
+The optional BS-RoFormer ViperX model is a separate trained asset. The local
+Metal package uses FP16 Safetensors converted from an existing ViperX checkpoint.
+Model provenance and checksums are documented in `crates/yt-media/models/README.md`
+in the source project. The notices above cover the software libraries.
 
 The published preview includes a source snapshot; later development adds
 components listed here that are not in that immutable preview. A distribution

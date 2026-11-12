@@ -9,8 +9,14 @@ license.workspace = true
 [features]
 default = []
 native-stems = ["dep:tch", "dep:hound"]
+metal-stems = ["dep:candle-core", "dep:ytu-candle-roformer-metal", "dep:hound"]
+# Builds `examples/lyrics_align_probe.rs`, the lyrics alignment measurement (docs/LYRICS_ALIGNMENT.md).
+metal-align = ["dep:candle-core", "candle-core/metal", "dep:candle-nn", "dep:tokenizers"]
 
 [dependencies]
+yt-core = { path = "../yt-core" }
+yt-mix = { path = "../yt-mix" }
+rustfft = "6.4"
 dirs = "6"
 futures-util = "0.3"
 innertube-rs = "0.10.1"
@@ -36,10 +42,14 @@ zeroize = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 aes = "0.8"
+candle-core = { version = "=0.11.1", optional = true }
+candle-nn = { version = "=0.11.1", features = ["metal"], optional = true }
 cbc = { version = "0.1", features = ["alloc"] }
 pbkdf2 = "0.12"
 sha1 = "0.10"
 security-framework = "3"
+tokenizers = { version = "0.23.1", default-features = false, features = ["fancy-regex"], optional = true }
+ytu-candle-roformer-metal = { path = "../../vendor/candle-roformer-metal", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 aes-gcm = "0.10"

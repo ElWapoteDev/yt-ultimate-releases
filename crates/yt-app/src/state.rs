@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
@@ -12,13 +12,19 @@ use std::{
 };
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 use yt_core::{AppCore, ImportMode, Job, JobStatus, PlaybackState, Playlist, Settings, Track};
-use yt_media::{AudioPlayer, CancellationToken, Downloader, YoutubeClient};
+use yt_media::{AudioPlayer, CancellationToken, Downloader, Transition, YoutubeClient};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     Home,
+    NewReleases,
+    Radio,
     Search,
+    Recent,
+    Artists,
+    Albums,
     Library,
+    Favorites,
     Playlists,
     Stems,
     Downloads,
@@ -26,11 +32,34 @@ pub enum Page {
 }
 
 impl Page {
+    /// Every page, in sidebar order.
+    pub const ALL: [Self; 13] = [
+        Self::Home,
+        Self::NewReleases,
+        Self::Radio,
+        Self::Search,
+        Self::Recent,
+        Self::Artists,
+        Self::Albums,
+        Self::Library,
+        Self::Favorites,
+        Self::Playlists,
+        Self::Stems,
+        Self::Downloads,
+        Self::Settings,
+    ];
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Home => "Inicio",
+            Self::NewReleases => "Novedades",
+            Self::Radio => "Radio",
             Self::Search => "Buscar",
+            Self::Recent => "Recientes",
+            Self::Artists => "Artistas",
+            Self::Albums => "Álbumes",
             Self::Library => "Canciones",
+            Self::Favorites => "Favoritos",
             Self::Playlists => "Playlists",
             Self::Stems => "Stems",
             Self::Downloads => "Descargas",
@@ -40,8 +69,14 @@ impl Page {
     pub fn icon(self) -> &'static str {
         match self {
             Self::Home => "home",
+            Self::NewReleases => "sparkles",
+            Self::Radio => "radio",
             Self::Search => "search",
+            Self::Recent => "clock",
+            Self::Artists => "mic",
+            Self::Albums => "album",
             Self::Library => "music-2",
+            Self::Favorites => "heart",
             Self::Playlists => "playlist",
             Self::Stems => "scissors",
             Self::Downloads => "download",
@@ -197,10 +232,9 @@ impl Services {
             .map(|session| (session.browser_id().to_owned(), session.cookie_count()))
     }
 
-    fn connection_clients(
-        settings: &Settings,
-        session: Option<yt_media::BrowserCookieSession>,
-    ) -> yt_media::Result<(YoutubeClient, Downloader)> {
+    /// Connection preferences of network clients: the socket timeout, the
+    /// proxy and the cookie file the user chose for YouTube.
+    pub(crate) fn connection_options(settings: &Settings) -> yt_media::ConnectionOptions {
         let cookies_file = settings
             .extra
             .get("youtube_cookie_file")
@@ -214,11 +248,18 @@ impl Services {
             .and_then(serde_json::Value::as_str)
             .filter(|value| !value.trim().is_empty())
             .map(str::to_owned);
-        let options = yt_media::ConnectionOptions {
+        yt_media::ConnectionOptions {
             socket_timeout_seconds: settings.download_socket_timeout as u64,
             proxy,
             cookies_file,
-        };
+        }
+    }
+
+    fn connection_clients(
+        settings: &Settings,
+        session: Option<yt_media::BrowserCookieSession>,
+    ) -> yt_media::Result<(YoutubeClient, Downloader)> {
+        let options = Self::connection_options(settings);
         Ok((
             match session {
                 Some(session) => YoutubeClient::with_browser_session(options.clone(), session)?,
@@ -343,12 +384,47 @@ pub struct AppState {
     pub menu_track: Signal<Option<Track>>,
     pub chipmunk_track: Signal<Option<Track>>,
     pub information_track: Signal<Option<Track>>,
-    pub notice: Signal<Option<String>>,
-    notice_generation: Signal<u64>,
+    /// Song whose credits dialog is open.
+    pub credits_track: Signal<Option<Track>>,
+    pub activity: crate::activity::Activity,
     pub busy: Signal<bool>,
     pub downloads: Signal<Vec<DownloadView>>,
     pub cancellations: Signal<HashMap<String, CancellationToken>>,
     pub sleep_at: Signal<Option<Instant>>,
+    pub(crate) listening: crate::listening::Listening,
+    /// Ids of every favorite, for marking items anywhere without a query.
+    pub favorites: Signal<HashSet<String>>,
+    /// Bumped after every favorite change so the Favorites page reloads.
+    pub favorites_revision: Signal<u64>,
+    pub(crate) autoplay: crate::autoplay::Autoplay,
+    pub(crate) dj: crate::dj::Dj,
+    pub(crate) dj_analysis: crate::dj_analysis::DjAnalysis,
+    /// The blend into the playing song, while the engine plays one.
+    pub(crate) blend: Signal<Option<yt_media::Blend>>,
+    /// The mix planned out of the playing song, for the player.
+    pub(crate) next_mix: Signal<Option<crate::dj::NextMix>>,
+    /// What the mix being heard is, from when it was armed until its blend ends.
+    pub(crate) mixing_as: Signal<Option<crate::dj::MixName>>,
+    /// The song that leaves in the blend being heard and how its music is
+    /// timed, from when the blend was started until it ends.
+    pub(crate) blend_scene: Signal<Option<crate::dj::BlendScene>>,
+    pub(crate) discovery: crate::discovery::Discovery,
+    pub(crate) album_art: crate::album_art::AlbumArt,
+    /// The full-screen now-playing view is open.
+    pub now_playing_open: Signal<bool>,
+    pub(crate) lyrics: crate::lyrics::LyricsState,
+    /// Detection of the zone used for nearby concerts.
+    pub(crate) region: crate::region::Region,
+    /// Detail views above the current page, top last.
+    pub(crate) detail: Signal<Vec<crate::navigation::Detail>>,
+    /// Playlist shown by the Playlists page.
+    pub selected_playlist: Signal<Option<String>>,
+    /// Followed artists, most recent first.
+    pub followed_artists: Signal<Vec<yt_core::FollowedArtist>>,
+    /// Remembered searches, most recent first.
+    pub search_history: Signal<Vec<yt_core::SearchHistoryEntry>>,
+    /// Artwork palettes shared by the playing theme and colored surfaces.
+    pub(crate) palettes: crate::theme::Palettes,
     last_saved_playback: Rc<RefCell<Option<PlaybackState>>>,
 }
 
@@ -386,7 +462,10 @@ fn restore_playback(
                         crate::remote::is_remote(track)
                             && (&track.id == id || playback_key(track) == *id)
                     })
-                    .cloned()
+                    .map(|track| Track {
+                        artist: yt_core::clean_artist(&track.artist),
+                        ..track.clone()
+                    })
             })
     };
     let current_id = state.current_index.and_then(|index| state.queue.get(index));
@@ -460,7 +539,10 @@ fn save_playback_if_changed(
 
 // Application state is shared by tasks which deliberately outlive individual pages.
 // Give those signals the same lifetime as the application task scope.
-fn use_app_signal<T: 'static>(init: impl FnOnce() -> T) -> Signal<T> {
+/// Recently played items kept in memory for Home and the queue panel.
+const RECENT_HISTORY_LIMIT: usize = 50;
+
+pub(crate) fn use_app_signal<T: 'static>(init: impl FnOnce() -> T) -> Signal<T> {
     use_hook(|| Signal::new_in_scope(init(), ScopeId::ROOT))
 }
 
@@ -473,12 +555,10 @@ pub fn use_app_state(services: Rc<Services>) -> AppState {
     let playlists = use_app_signal(|| core.playlists().unwrap_or_default());
     let settings = use_app_signal(|| core.settings().unwrap_or_default());
     let history = use_app_signal(|| {
-        let mut seen = std::collections::HashSet::new();
-        core.history(50)
+        core.recently_played(RECENT_HISTORY_LIMIT)
             .unwrap_or_default()
-            .into_iter()
-            .map(|h| h.track)
-            .filter(|track| seen.insert(track.id.clone()) && !track.missing)
+            .iter()
+            .map(crate::remote::track_from_item)
             .collect()
     });
     let queue = use_app_signal(|| restored.1.clone());
@@ -550,12 +630,12 @@ pub fn use_app_state(services: Rc<Services>) -> AppState {
         menu_track: use_app_signal(|| None),
         chipmunk_track: use_app_signal(|| None),
         information_track: use_app_signal(|| None),
-        notice: use_app_signal(|| {
+        credits_track: use_app_signal(|| None),
+        activity: crate::activity::Activity::use_new(
             initial_result
                 .err()
-                .map(|e| format!("No se pudo restaurar la reproducción: {e}"))
-        }),
-        notice_generation: use_app_signal(|| 0),
+                .map(|e| format!("No se pudo restaurar la reproducción: {e}")),
+        ),
         busy: use_app_signal(|| false),
         downloads: use_app_signal(|| {
             core.jobs()
@@ -567,62 +647,87 @@ pub fn use_app_state(services: Rc<Services>) -> AppState {
         }),
         cancellations: use_app_signal(HashMap::new),
         sleep_at: use_app_signal(|| None),
+        listening: use_hook(crate::listening::Listening::default),
+        favorites: use_app_signal(|| core.favorite_ids().unwrap_or_default()),
+        favorites_revision: use_app_signal(|| 0),
+        autoplay: crate::autoplay::use_autoplay(),
+        dj: use_hook(crate::dj::Dj::default),
+        dj_analysis: crate::dj_analysis::use_dj_analysis(),
+        blend: use_app_signal(|| None),
+        next_mix: use_app_signal(|| None),
+        mixing_as: use_app_signal(|| None),
+        blend_scene: use_app_signal(|| None),
+        discovery: crate::discovery::use_discovery(),
+        album_art: crate::album_art::use_album_art(core, settings),
+        now_playing_open: use_app_signal(|| false),
+        lyrics: crate::lyrics::use_lyrics(),
+        region: crate::region::use_region(),
+        detail: use_app_signal(Vec::new),
+        selected_playlist: use_app_signal(|| None),
+        followed_artists: use_app_signal(|| core.followed_artists().unwrap_or_default()),
+        search_history: use_app_signal(|| {
+            core.search_history(crate::search::HISTORY_IN_MEMORY)
+                .unwrap_or_default()
+        }),
+        palettes: use_hook(crate::theme::Palettes::default),
         last_saved_playback: use_hook(|| Rc::new(RefCell::new(None))),
     }
 }
 
 impl AppState {
-    pub fn notify(&self, text: impl Into<String>) {
-        let mut notice = self.notice;
-        let text = text.into();
-        crate::native::record_log(&self.services.profile, &text);
-        notice.set(Some(text));
-        let mut sequence = self.notice_generation;
-        let generation = sequence.peek().wrapping_add(1);
-        sequence.set(generation);
-        dioxus::core::spawn_forever(async move {
-            tokio::time::sleep(Duration::from_secs(4)).await;
-            if *sequence.peek() == generation {
-                notice.set(None);
-            }
-        });
-    }
-
     pub fn refresh(&self) {
         let mut library = self.library;
         let mut playlists = self.playlists;
         match self.services.core.library("") {
             Ok(v) => library.set(v),
-            Err(e) => self.notify(e.to_string()),
+            Err(e) => self.notify_error(e.to_string()),
         }
         match self.services.core.playlists() {
             Ok(v) => playlists.set(v),
-            Err(e) => self.notify(e.to_string()),
+            Err(e) => self.notify_error(e.to_string()),
         }
     }
 
+    /// Play `track` because the user picked it: this starts a new listening
+    /// context, so a playing station ends.
     pub fn play(&self, track: Track) {
+        self.stop_station();
+        self.play_with(track, Transition::Cut);
+    }
+
+    /// Play `track` from the start, replacing what plays with `transition`.
+    pub(crate) fn play_with(&self, track: Track, transition: Transition) {
         let mut error = self.playback_error;
         error.set(None);
         let mut recovery = self.recovering;
         recovery.set(false);
         if crate::remote::is_remote(&track) {
-            self.start_remote(track, 0.0);
+            self.start_remote_with(track, 0.0, transition);
             return;
         }
         if track.media_type == "video" {
             crate::video::start_local(self.clone(), track, 0.0);
             return;
         }
-        self.cancel_remote();
+        // A blending online song keeps its session: the engine releases it
+        // when the fade ends.
+        self.reset_remote(transition == Transition::Cut);
         let mut video_url = self.video_url;
         video_url.set(None);
         let mut video = self.video_track;
         video.set(None);
-        self.play_at(track, 0.0, true);
+        self.play_at(track, 0.0, true, transition);
     }
 
-    fn play_at(&self, track: Track, position: f64, record: bool) {
+    /// Every newly started playback passes here once: it opens the listening
+    /// event and lets autoplay prepare what follows.
+    pub(crate) fn playback_started(&self, track: &Track) {
+        self.reset_blend();
+        self.begin_listening(track);
+        self.refresh_autoplay();
+    }
+
+    fn play_at(&self, track: Track, position: f64, record: bool, transition: Transition) {
         let position = if track.duration > 0.0 {
             position.clamp(0.0, track.duration)
         } else {
@@ -638,7 +743,9 @@ impl AppState {
             .and_then(|audio| {
                 audio.set_volume(volume).map_err(|e| e.to_string())?;
                 audio.set_speed(rate).map_err(|e| e.to_string())?;
-                audio.play(&track.path).map_err(|e| e.to_string())?;
+                audio
+                    .play_with(&track.path, transition)
+                    .map_err(|e| e.to_string())?;
                 if position > 0.0 {
                     if let Err(error) = audio.seek(position) {
                         let _ = audio.stop();
@@ -659,9 +766,7 @@ impl AppState {
                 s.history.write().retain(|t| t.id != track.id);
                 s.history.write().insert(0, track.clone());
                 if record {
-                    if let Err(e) = s.services.core.record_playback(&track.id, position) {
-                        s.notify(e.to_string());
-                    }
+                    s.playback_started(&track);
                 }
                 crate::native::record_recent(&track.path);
                 s.persist_playback();
@@ -679,7 +784,7 @@ impl AppState {
                     let mut playing = self.playing;
                     playing.set(false);
                 }
-                self.notify(format!("No se pudo reproducir: {error}"));
+                self.notify_error(format!("No se pudo reproducir: {error}"));
             }
         }
     }
@@ -733,8 +838,9 @@ impl AppState {
         let mut s = self.clone();
         let was_playing = *s.playing.read();
         if audio.snapshot().path.is_none() && audio.snapshot().remote_id.is_none() {
+            // Nothing is loaded after a restart: resuming starts a new listen.
             let position = *self.position.peek();
-            self.play_at(track, position, false);
+            self.play_at(track, position, true, Transition::Cut);
             return;
         }
         if audio.snapshot().finished {
@@ -751,11 +857,12 @@ impl AppState {
                 s.playing.set(!was_playing);
                 s.persist_playback();
             }
-            Err(e) => s.notify(e.to_string()),
+            Err(e) => s.notify_error(e.to_string()),
         }
     }
 
     pub fn play_all(&self, mut tracks: Vec<Track>, shuffled: bool) {
+        self.stop_station();
         if shuffled {
             use rand::seq::SliceRandom;
             tracks.shuffle(&mut rand::rng());
@@ -791,11 +898,12 @@ impl AppState {
 
     fn play_without_session_history(&self, track: Track) {
         self.suppress_session_history.set(true);
-        self.play(track);
+        self.play_with(track, Transition::Cut);
         self.suppress_session_history.set(false);
     }
 
     pub fn next(&self, automatic: bool) {
+        self.end_listening(automatic);
         let repeat = *self.repeat.peek();
         if automatic && repeat == 2 {
             let current = self.current.peek().clone();
@@ -822,6 +930,11 @@ impl AppState {
             }
         }
         if tracks.is_empty() {
+            if let Some(track) = self.take_autoplay() {
+                let transition = self.transition_for(&track, automatic);
+                self.play_with(track, transition);
+                return;
+            }
             if *self.stream_loading.peek() {
                 self.cancel_remote();
             }
@@ -830,15 +943,17 @@ impl AppState {
             }
             if let Ok(audio) = &self.services.audio {
                 if let Err(error) = audio.pause() {
-                    self.notify(error.to_string());
+                    self.notify_error(error.to_string());
                 }
             }
             let mut playing = self.playing;
             playing.set(false);
             self.persist_playback();
+            self.autoplay_when_ready();
             return;
         }
-        let index = if *self.shuffle.read() {
+        let reserved = self.take_reserved_next();
+        let index = if *self.shuffle.read() && !reserved {
             rand::random_range(0..tracks.len())
         } else {
             0
@@ -846,7 +961,8 @@ impl AppState {
         let track = tracks.remove(index);
         let mut queue = self.queue;
         queue.set(tracks);
-        self.play(track);
+        let transition = self.transition_for(&track, automatic);
+        self.play_with(track, transition);
     }
 
     pub fn previous(&self) {
@@ -888,7 +1004,7 @@ impl AppState {
             .as_ref()
             .is_some_and(|track| track.media_type == "video");
         if !seconds.is_finite() {
-            self.notify("La posición de reproducción no es válida");
+            self.notify_warning("La posición de reproducción no es válida");
             return;
         }
         let duration = *self.duration.peek();
@@ -924,14 +1040,14 @@ impl AppState {
                     p.set(seconds);
                     self.persist_playback();
                 }
-                Err(e) => self.notify(e.to_string()),
+                Err(e) => self.notify_error(e.to_string()),
             }
         }
     }
 
     pub fn set_volume(&self, value: f32) {
         if !value.is_finite() {
-            self.notify("El volumen no es válido");
+            self.notify_warning("El volumen no es válido");
             return;
         }
         let value = value.clamp(0.0, 1.0);
@@ -951,7 +1067,7 @@ impl AppState {
         }
         if let Ok(audio) = &self.services.audio {
             if let Err(e) = audio.set_volume(value) {
-                self.notify(e.to_string());
+                self.notify_error(e.to_string());
             }
         }
         self.persist_playback();
@@ -974,14 +1090,14 @@ impl AppState {
             } else if track.media_type == "video" {
                 crate::video::start_local(self.clone(), track, position);
             } else {
-                self.play_at(track, position, false);
+                self.play_at(track, position, false, Transition::Cut);
             }
         }
     }
 
     pub fn set_rate(&self, value: f32) {
         if !value.is_finite() || !(0.25..=4.0).contains(&value) {
-            self.notify("La velocidad debe estar entre 0,25× y 4×");
+            self.notify_warning("La velocidad debe estar entre 0,25× y 4×");
             return;
         }
         if self.video_track.peek().is_some() {
@@ -998,7 +1114,7 @@ impl AppState {
                     rate.set(value);
                     self.persist_playback();
                 }
-                Err(e) => self.notify(e.to_string()),
+                Err(e) => self.notify_error(e.to_string()),
             }
         }
     }
@@ -1058,7 +1174,7 @@ impl AppState {
         };
         match save_playback_if_changed(&self.services.core, &self.last_saved_playback, state) {
             Ok(_) => {}
-            Err(e) => self.notify(format!("No se pudo guardar la reproducción: {e}")),
+            Err(e) => self.notify_error(format!("No se pudo guardar la reproducción: {e}")),
         }
     }
 
@@ -1079,7 +1195,7 @@ impl AppState {
             ) {
                 Ok(clients) => Some(clients),
                 Err(error) => {
-                    self.notify(format!("No se guardó la conexión: {error}"));
+                    self.notify_error(format!("No se guardó la conexión: {error}"));
                     return;
                 }
             }
@@ -1102,8 +1218,15 @@ impl AppState {
                 let mut settings = self.settings;
                 settings.set(value);
             }
-            Err(e) => self.notify(format!("No se guardaron los ajustes: {e}")),
+            Err(e) => self.notify_error(format!("No se guardaron los ajustes: {e}")),
         }
+    }
+
+    /// Change typed preferences; `save_settings` validates them in `yt-core`.
+    pub(crate) fn edit_settings(&self, edit: impl FnOnce(&mut Settings)) {
+        let mut value = self.settings.peek().clone();
+        edit(&mut value);
+        self.save_settings(value);
     }
 
     pub fn update_setting(&self, key: &str, value: serde_json::Value) {
@@ -1113,7 +1236,7 @@ impl AppState {
         });
         match result {
             Ok(settings) => self.save_settings(settings),
-            Err(error) => self.notify(format!("No se pudo guardar el ajuste: {error}")),
+            Err(error) => self.notify_error(format!("No se pudo guardar el ajuste: {error}")),
         }
     }
 
@@ -1136,38 +1259,48 @@ impl AppState {
                         state.refresh();
                     }
                 }
-                Ok(Err(error)) => state.notify(format!(
+                Ok(Err(error)) => state.notify_error(format!(
                     "No se pudo enviar el evento a los plugins: {error}"
                 )),
-                Err(error) => state.notify(format!("La tarea del plugin se interrumpió: {error}")),
+                Err(error) => {
+                    state.notify_error(format!("La tarea del plugin se interrumpió: {error}"))
+                }
             }
         });
     }
 
     pub fn clean_temporary_files(&self) {
         if !self.cancellations.peek().is_empty() {
-            self.notify("Espera a que terminen los trabajos antes de limpiar temporales");
+            self.notify_warning("Espera a que terminen los trabajos antes de limpiar temporales");
             return;
         }
         let state = self.clone();
+        let task = self.begin_task("trash", "Limpiando temporales");
         dioxus::core::spawn_forever(async move {
             let core = state.services.core.clone();
-            match tokio::task::spawn_blocking(move || core.clean_temporary_files()).await {
-                Ok(Ok(report)) => state.notify(format!(
-                    "{} temporales eliminados · {} liberados{}",
-                    report.files_removed,
-                    size_label(report.bytes_removed),
+            let result = tokio::task::spawn_blocking(move || core.clean_temporary_files()).await;
+            drop(task);
+            match result {
+                Ok(Ok(report)) => {
+                    let summary = format!(
+                        "{} temporales eliminados · {} liberados",
+                        report.files_removed,
+                        size_label(report.bytes_removed)
+                    );
                     if report.errors.is_empty() {
-                        String::new()
+                        state.notify_success(summary);
                     } else {
-                        format!("; {} archivos no se pudieron limpiar", report.errors.len())
+                        state.notify_warning(format!(
+                            "{summary}; {} archivos no se pudieron limpiar",
+                            report.errors.len()
+                        ));
                     }
-                )),
+                }
                 Ok(Err(error)) => {
-                    state.notify(format!("No se pudieron limpiar los temporales: {error}"))
+                    state.notify_error(format!("No se pudieron limpiar los temporales: {error}"))
                 }
                 Err(error) => {
-                    state.notify(format!("No se pudieron limpiar los temporales: {error}"))
+                    state.notify_error(format!("No se pudieron limpiar los temporales: {error}"))
                 }
             }
         });
@@ -1218,24 +1351,25 @@ impl AppState {
             else {
                 return;
             };
+            let task = state.begin_task("playlist", format!("Exportando «{}»", playlist.name));
             let core = state.services.core.clone();
             let path = output.path().to_owned();
-            match tokio::task::spawn_blocking(move || {
-                core.export_playlist_m3u8(&playlist.id, &path)
-            })
-            .await
-            {
-                Ok(Ok(report)) => state.notify(format!(
-                    "Playlist exportada: {} pistas{}",
-                    report.exported_tracks,
-                    if report.skipped.is_empty() {
-                        String::new()
-                    } else {
-                        format!("; {} archivos no disponibles", report.skipped.len())
-                    }
+            let result =
+                tokio::task::spawn_blocking(move || core.export_playlist_m3u8(&playlist.id, &path))
+                    .await;
+            drop(task);
+            match result {
+                Ok(Ok(report)) if report.skipped.is_empty() => state.notify_success(format!(
+                    "Playlist exportada: {} pistas",
+                    report.exported_tracks
                 )),
-                Ok(Err(error)) => state.notify(format!("No se pudo exportar: {error}")),
-                Err(error) => state.notify(format!("No se pudo exportar: {error}")),
+                Ok(Ok(report)) => state.notify_warning(format!(
+                    "Playlist exportada: {} pistas; {} archivos no disponibles",
+                    report.exported_tracks,
+                    report.skipped.len()
+                )),
+                Ok(Err(error)) => state.notify_error(format!("No se pudo exportar: {error}")),
+                Err(error) => state.notify_error(format!("No se pudo exportar: {error}")),
             }
         });
     }
@@ -1243,6 +1377,16 @@ impl AppState {
     pub async fn import_paths(&self, paths: Vec<PathBuf>) {
         let mut busy = self.busy;
         busy.set(true);
+        let task = self
+            .begin_task("folder-input", "Importando a la biblioteca")
+            .page(Page::Library);
+        task.detail(match paths.as_slice() {
+            [path] => path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            paths => format!("{} elementos", paths.len()),
+        });
         let core = self.services.core.clone();
         let mode = if self.settings.read().import_mode == "reference" {
             ImportMode::Reference
@@ -1251,6 +1395,7 @@ impl AppState {
         };
         let result = tokio::task::spawn_blocking(move || core.import_paths(&paths, mode)).await;
         busy.set(false);
+        drop(task);
         match result {
             Ok(Ok(report)) => {
                 for track in &report.tracks {
@@ -1264,27 +1409,72 @@ impl AppState {
                     .map(|e| e.message.clone())
                     .collect::<Vec<_>>()
                     .join(" · ");
-                self.notify(if report.errors.is_empty() {
-                    format!(
-                        "{} archivos importados{}",
-                        report.tracks.len(),
-                        if report.playlists.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" · {} playlists", report.playlists.len())
-                        }
-                    )
+                if report.errors.is_empty() {
+                    self.announce(
+                        crate::activity::Tone::Success,
+                        format!(
+                            "{} archivos importados{}",
+                            report.tracks.len(),
+                            if report.playlists.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" · {} playlists", report.playlists.len())
+                            }
+                        ),
+                        Some(Page::Library),
+                    );
                 } else {
-                    format!(
-                        "{} importados; {} errores: {errors}",
-                        report.tracks.len(),
-                        report.errors.len()
-                    )
-                });
+                    self.announce(
+                        crate::activity::Tone::Warning,
+                        format!(
+                            "{} importados; {} errores: {errors}",
+                            report.tracks.len(),
+                            report.errors.len()
+                        ),
+                        Some(Page::Library),
+                    );
+                }
             }
-            Ok(Err(e)) => self.notify(e.to_string()),
-            Err(e) => self.notify(e.to_string()),
+            Ok(Err(e)) => self.notify_error(e.to_string()),
+            Err(e) => self.notify_error(e.to_string()),
         }
+    }
+
+    /// Reconcile the library with its folder in the background. Problems always
+    /// produce a notice; success only when the user asked for the scan.
+    pub fn scan_library(&self, report_success: bool) {
+        let state = self.clone();
+        let task = self
+            .begin_task("music-2", "Revisando la biblioteca")
+            .page(Page::Library);
+        dioxus::core::spawn_forever(async move {
+            let core = state.services.core.clone();
+            let result = tokio::task::spawn_blocking(move || core.scan_library()).await;
+            drop(task);
+            match result {
+                Ok(Ok(report)) => {
+                    state.refresh();
+                    if !report.errors.is_empty() {
+                        state.announce(
+                            crate::activity::Tone::Warning,
+                            format!(
+                                "La revisión de la biblioteca encontró {} archivos que no se pudieron importar",
+                                report.errors.len()
+                            ),
+                            Some(Page::Library),
+                        );
+                    } else if report_success {
+                        state.notify_success("Biblioteca actualizada");
+                    }
+                }
+                Ok(Err(error)) => {
+                    state.notify_error(format!("No se pudo revisar la biblioteca: {error}"))
+                }
+                Err(error) => state.notify_error(format!(
+                    "La revisión de la biblioteca se interrumpió: {error}"
+                )),
+            }
+        });
     }
 
     pub fn start_polling(&self) {
@@ -1293,25 +1483,9 @@ impl AppState {
             serde_json::json!({"version":env!("CARGO_PKG_VERSION")}),
         );
         if self.settings.peek().scan_library_on_startup {
-            let state = self.clone();
-            dioxus::core::spawn_forever(async move {
-                let core = state.services.core.clone();
-                match tokio::task::spawn_blocking(move || core.scan_library()).await {
-                    Ok(Ok(report)) => {
-                        state.refresh();
-                        if !report.errors.is_empty() {
-                            state.notify(format!("La revisión de la biblioteca encontró {} archivos que no se pudieron importar",report.errors.len()));
-                        }
-                    }
-                    Ok(Err(error)) => {
-                        state.notify(format!("No se pudo revisar la biblioteca: {error}"))
-                    }
-                    Err(error) => state.notify(format!(
-                        "La revisión de la biblioteca se interrumpió: {error}"
-                    )),
-                }
-            });
+            self.scan_library(false);
         }
+        self.start_library_analysis();
         let mut s = self.clone();
         dioxus::core::spawn_forever(async move {
             let mut ticks = 0u8;
@@ -1348,12 +1522,22 @@ impl AppState {
                         }
                         if let Some(error) = &snapshot.error {
                             if last_audio_error.as_ref() != Some(error) {
-                                s.notify(error.clone());
+                                s.notify_error(error.clone());
                             }
                             s.playing.set(false);
                             s.recover_remote(error.clone());
                         } else if was_playing && snapshot.finished {
                             s.next(true);
+                        }
+                        s.observe_sound(snapshot.analysis);
+                        if *s.blend.peek() != snapshot.blend {
+                            if snapshot.blend.is_none() && s.mixing_as.peek().is_some() {
+                                s.mixing_as.set(None);
+                            }
+                            if snapshot.blend.is_none() && s.blend_scene.peek().is_some() {
+                                s.blend_scene.set(None);
+                            }
+                            s.blend.set(snapshot.blend);
                         }
                         last_audio_error = snapshot.error;
                     }
@@ -1362,6 +1546,10 @@ impl AppState {
                 if timer_expired {
                     s.expire_sleep_timer();
                 }
+                s.activity.expire(Instant::now());
+                s.listening_tick();
+                s.dj_tick();
+                s.publish_next_mix();
                 ticks += 1;
                 if ticks == 20 {
                     ticks = 0;
@@ -1391,7 +1579,7 @@ impl AppState {
         state.sleep_at.set(None);
         state.persist_playback();
         match pause_error {
-            Some(error) => state.notify(format!(
+            Some(error) => state.notify_error(format!(
                 "El temporizador terminó, pero no se pudo pausar el audio: {error}"
             )),
             None => state.notify("Temporizador finalizado"),
@@ -2046,9 +2234,7 @@ mod tests {
             state.toggle_play();
             assert_eq!(state.current.peek().as_ref().unwrap().id, audio.id);
             assert!(state
-                .notice
-                .peek()
-                .as_ref()
+                .last_notice()
                 .unwrap()
                 .contains("No se pudo reproducir"));
         });

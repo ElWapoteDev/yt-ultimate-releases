@@ -1,7 +1,6 @@
 body { background: transparent; }
 .rust-track-main { display:flex; align-items:center; gap:12px; flex:1; min-width:0; text-align:left; cursor:pointer; }
 .rust-track-menu { max-width:440px; max-height:80vh; overflow:auto; }
-.rust-notice { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:500; display:flex; align-items:center; gap:16px; max-width:min(640px,90vw); padding:8px 14px; background:rgba(40,40,43,.82); backdrop-filter:blur(40px) saturate(180%); -webkit-backdrop-filter:blur(40px) saturate(180%); border:.5px solid rgba(255,255,255,.10); border-radius:10px; box-shadow:0 12px 40px #0008; font-size:13px; }
 .rust-danger { color:var(--system-red); }
 .rust-form { display:flex; gap:8px; margin-bottom:22px; }
 .rust-form .input-search-wrap { flex:1; }

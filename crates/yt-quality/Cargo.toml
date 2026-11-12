@@ -7,6 +7,7 @@ license.workspace = true
 
 [features]
 native-stems = ["yt-media/native-stems"]
+metal-stems = ["yt-media/metal-stems"]
 
 [dependencies]
 rustfft = "6.4"

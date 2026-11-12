@@ -1,18 +1,36 @@
-//! Native LibTorch inference with hardware detection and a CPU fallback.
+//! Shared streaming, overlap-add, and output for the vocal separator.
 use crate::{decode_file, CancellationToken, MediaError, Result};
 use hound::{SampleFormat, WavSpec, WavWriter};
 use rodio::{source::UniformSourceIterator, Source};
 use std::{
     fs,
+    io::BufWriter,
     path::{Path, PathBuf},
-    sync::{Mutex, Once},
+    sync::Mutex,
 };
-use tch::{CModule, Device, Tensor};
+
+#[cfg(all(feature = "metal-stems", target_os = "macos"))]
+mod metal;
+#[cfg(all(
+    feature = "native-stems",
+    not(all(feature = "metal-stems", target_os = "macos"))
+))]
+mod torch;
+
+#[cfg(all(feature = "metal-stems", target_os = "macos"))]
+use self::metal as engine;
+#[cfg(all(
+    feature = "native-stems",
+    not(all(feature = "metal-stems", target_os = "macos"))
+))]
+use self::torch as engine;
+
+use engine::Backend;
+pub use engine::{STEM_MODEL_FILENAME, STEM_MODEL_LABEL};
 
 const RATE: u32 = 44_100;
 const BLOCK: usize = 352_800;
 const HOP: usize = BLOCK / 4;
-static THREADS: Once = Once::new();
 
 #[derive(Clone, Copy, Debug)]
 pub struct StemProgress {
@@ -38,63 +56,31 @@ pub struct StemReceipt {
     pub fallback_reason: Option<String>,
 }
 
-/// The exported BS-RoFormer vocals model, fixed at stereo/44.1 kHz/8 seconds.
-/// Loading and inference block; use a worker thread. CUDA/MPS are selected only
-/// when available in the installed LibTorch; incompatible inference retries on
-/// CPU without publishing partial output. The model and LibTorch must be installed.
+/// A vocals model with fixed stereo 44.1 kHz input and 8-second windows.
+/// Loading and inference block. Run them on a worker thread.
 pub struct StemSeparator {
-    model_path: PathBuf,
     backend: Mutex<Backend>,
-}
-
-struct Backend {
-    model: Option<CModule>,
-    device: Device,
-    fallback_reason: Option<String>,
 }
 
 impl StemSeparator {
     pub fn load(model_path: impl AsRef<Path>) -> Result<Self> {
-        THREADS.call_once(|| {
-            let available = std::thread::available_parallelism().map_or(2, usize::from);
-            tch::set_num_threads(available.min(4) as i32);
-        });
-        let model_path = model_path.as_ref().to_owned();
-        let preferred = preferred_device(tch::Cuda::is_available(), tch::utils::has_mps());
-        let (model, device, fallback_reason) = match load_model(&model_path, preferred) {
-            Ok(model) => (model, preferred, None),
-            Err(error) if preferred != Device::Cpu => (
-                load_model(&model_path, Device::Cpu)?,
-                Device::Cpu,
-                Some(fallback_message(preferred, &error)),
-            ),
-            Err(error) => return Err(error),
-        };
         Ok(Self {
-            model_path,
-            backend: Mutex::new(Backend {
-                model: Some(model),
-                device,
-                fallback_reason,
-            }),
+            backend: Mutex::new(Backend::load(model_path.as_ref())?),
         })
     }
 
     pub fn device_name(&self) -> &'static str {
-        device_label(
-            self.backend
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .device,
-        )
+        self.backend
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .device_name()
     }
 
     pub fn fallback_reason(&self) -> Option<String> {
         self.backend
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .fallback_reason
-            .clone()
+            .fallback_reason()
     }
 
     /// Write stereo, 32-bit float WAVs without replacing existing files.
@@ -136,15 +122,17 @@ impl StemSeparator {
             sample_format: SampleFormat::Float,
         };
         let mut vocals_writer =
-            WavWriter::new(vocals_temp.as_file_mut(), spec).map_err(wav_error)?;
+            WavWriter::new(BufWriter::new(vocals_temp.as_file_mut()), spec).map_err(wav_error)?;
         let mut instrumental_writer =
-            WavWriter::new(instrumental_temp.as_file_mut(), spec).map_err(wav_error)?;
+            WavWriter::new(BufWriter::new(instrumental_temp.as_file_mut()), spec)
+                .map_err(wav_error)?;
         let mut window = Vec::with_capacity(BLOCK * 2);
+        let mut planar = vec![0.0_f32; BLOCK * 2];
+        let mut vocals = vec![0.0_f32; BLOCK * 2];
         let mut accum = vec![0.0_f32; BLOCK * 2];
         let mut weights = vec![0.0_f32; BLOCK];
         let taper = overlap_window();
         let mut processed = 0_u64;
-        let _no_grad = tch::no_grad_guard();
         on_progress(StemProgress {
             processed_frames: 0,
             total_frames,
@@ -171,7 +159,8 @@ impl StemSeparator {
                 break;
             }
             let end = frames < BLOCK;
-            let vocals = self.predict(&window)?;
+            prepare_window(&window, &mut planar);
+            self.predict(&planar, &mut vocals)?;
             check_cancel(&cancel)?;
             for frame in 0..frames {
                 weights[frame] += taper[frame];
@@ -237,97 +226,23 @@ impl StemSeparator {
         })
     }
 
-    fn predict(&self, interleaved: &[f32]) -> Result<Vec<f32>> {
-        let frames = interleaved.len() / 2;
-        let mut planar = vec![0.0_f32; BLOCK * 2];
-        for frame in 0..frames {
-            planar[frame] = interleaved[frame * 2];
-            planar[BLOCK + frame] = interleaved[frame * 2 + 1];
-        }
-        let mut backend = self
-            .backend
+    fn predict(&self, planar: &[f32], vocals: &mut [f32]) -> Result<()> {
+        self.backend
             .lock()
-            .map_err(|_| MediaError::Processing("El motor de separación se interrumpió".into()))?;
-        match predict_on(&backend, &planar) {
-            Ok(output) => Ok(output),
-            Err(error) if backend.device != Device::Cpu => {
-                backend.fallback_reason = Some(fallback_message(backend.device, &error));
-                // Release device allocations before loading the fallback model.
-                backend.model.take();
-                backend.device = Device::Cpu;
-                backend.model = Some(load_model(&self.model_path, Device::Cpu)?);
-                predict_on(&backend, &planar)
-            }
-            Err(error) => Err(error),
-        }
+            .map_err(|_| MediaError::Processing("El motor de separación se interrumpió".into()))?
+            .predict(planar, vocals)
     }
 }
 
-fn predict_on(backend: &Backend, planar: &[f32]) -> Result<Vec<f32>> {
-    let input = Tensor::f_from_slice(planar)
-        .and_then(|t| t.f_reshape([1, 2, BLOCK as i64]))
-        .and_then(|t| t.f_to_device(backend.device))
-        .map_err(inference_error)?;
-    let model = backend
-        .model
-        .as_ref()
-        .ok_or_else(|| MediaError::Processing("No se pudo cargar el modelo de respaldo".into()))?;
-    let output = model.forward_ts(&[input]).map_err(inference_error)?;
-    if output.size() != [1, 2, BLOCK as i64] {
-        return Err(MediaError::Processing(
-            "El modelo no es compatible: se requiere BS-RoFormer estéreo de 8 segundos.".into(),
-        ));
+fn prepare_window(interleaved: &[f32], planar: &mut [f32]) {
+    let frames = interleaved.len() / 2;
+    let (left, right) = planar.split_at_mut(BLOCK);
+    for (index, frame) in interleaved.chunks_exact(2).enumerate() {
+        left[index] = frame[0];
+        right[index] = frame[1];
     }
-    let output = output
-        .f_to_device(Device::Cpu)
-        .and_then(|t| t.f_contiguous())
-        .map_err(inference_error)?;
-    let mut samples = vec![0.0_f32; BLOCK * 2];
-    output
-        .f_copy_data(&mut samples, BLOCK * 2)
-        .map_err(inference_error)?;
-    if samples.iter().any(|value| !value.is_finite()) {
-        return Err(MediaError::Processing(
-            "El modelo produjo muestras no válidas.".into(),
-        ));
-    }
-    Ok(samples)
-}
-
-fn load_model(path: &Path, device: Device) -> Result<CModule> {
-    let mut model = CModule::load_on_device(path, device).map_err(inference_error)?;
-    model.f_set_eval().map_err(inference_error)?;
-    Ok(model)
-}
-
-fn preferred_device(cuda: bool, mps: bool) -> Device {
-    if cuda {
-        Device::Cuda(0)
-    } else if mps {
-        Device::Mps
-    } else {
-        Device::Cpu
-    }
-}
-
-fn device_label(device: Device) -> &'static str {
-    match device {
-        Device::Cuda(_) => "CUDA",
-        Device::Mps => "Apple Metal",
-        _ => "CPU",
-    }
-}
-
-fn fallback_message(device: Device, error: &MediaError) -> String {
-    // Native exception backtraces can include build-machine paths and hundreds
-    // of frames; the first line contains the actionable reason.
-    let message = error.to_string();
-    let reason = message.lines().next().unwrap_or("Error de inferencia");
-    format!(
-        "{}: {}",
-        device_label(device),
-        reason.chars().take(512).collect::<String>()
-    )
+    left[frames..].fill(0.0);
+    right[frames..].fill(0.0);
 }
 
 fn overlap_window() -> Vec<f32> {
@@ -372,9 +287,6 @@ fn check_cancel(cancel: &CancellationToken) -> Result<()> {
     }
 }
 
-fn inference_error(error: tch::TchError) -> MediaError {
-    MediaError::Processing(error.to_string())
-}
 fn wav_error(error: hound::Error) -> MediaError {
     MediaError::Processing(error.to_string())
 }
@@ -384,52 +296,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn failed_accelerator_reloads_cpu_and_retries_original_samples() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("fixture.pt");
-        let input = Tensor::zeros([1, 2, BLOCK as i64], (tch::Kind::Float, Device::Cpu));
-        let model = CModule::create_by_tracing("Fixture", "forward", &[input], &mut |inputs| {
-            vec![&inputs[0] * 2.0]
-        })
-        .unwrap();
-        model.save(&path).unwrap();
-        let separator = StemSeparator {
-            model_path: path,
-            backend: Mutex::new(Backend {
-                model: None,
-                device: Device::Cuda(0),
-                fallback_reason: None,
-            }),
-        };
-        let output = separator.predict(&[0.25, -0.5, 0.75, 0.125]).unwrap();
-        assert_eq!(&output[..2], &[0.5, 1.5]);
-        assert_eq!(&output[BLOCK..BLOCK + 2], &[-1.0, 0.25]);
-        assert_eq!(separator.device_name(), "CPU");
-        assert!(separator.fallback_reason().unwrap().starts_with("CUDA:"));
-        assert_eq!(separator.predict(&[0.5, 0.75]).unwrap()[0], 1.0);
-    }
-
-    #[test]
-    fn detection_preserves_cpu_and_diagnostics_drop_native_backtrace() {
-        assert_eq!(preferred_device(false, false), Device::Cpu);
-        assert_eq!(preferred_device(false, true), Device::Mps);
-        assert_eq!(preferred_device(true, true), Device::Cuda(0));
-        let error = MediaError::Processing(
-            "Unsupported operation\n/private/developer/model.py\nframe #0".into(),
-        );
-        let message = fallback_message(Device::Mps, &error);
-        assert!(message.contains("Unsupported operation"));
-        assert!(!message.contains("developer"));
-        assert!(!message.contains("frame"));
-    }
-
-    #[test]
     fn windows_remain_positive_and_complementary() {
         let window = overlap_window();
         assert!(window.iter().all(|w| w.is_finite() && *w > 0.0));
-        for frame in HOP..HOP * 2 {
-            let sum: f32 = (0..4).map(|i| window[(frame + i * HOP) % BLOCK]).sum();
-            assert!((sum - 2.0).abs() < 0.004);
+        let overlap = BLOCK / HOP;
+        for frame in 0..HOP {
+            let sum: f32 = (0..overlap).map(|i| window[frame + i * HOP]).sum();
+            assert!((sum - overlap as f32 / 2.0).abs() < 0.004);
         }
     }
 

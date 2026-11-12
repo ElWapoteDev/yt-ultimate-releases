@@ -1,0 +1,11 @@
+[package]
+name = "yt-geo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Offline zone of a device position, named in Spanish, for YT Ultimate"
+
+[dependencies]
+yt-core = { path = "../yt-core" }
+thiserror = "2"

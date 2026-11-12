@@ -1,10 +1,15 @@
-#[cfg(feature = "native-stems")]
+#[cfg(any(
+    feature = "native-stems",
+    all(feature = "metal-stems", target_os = "macos")
+))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::{path::PathBuf, time::Instant};
     let model = std::env::args()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("crates/yt-media/models/bs-roformer-v1.pt"));
+        .unwrap_or_else(|| {
+            PathBuf::from("crates/yt-media/models").join(yt_media::STEM_MODEL_FILENAME)
+        });
     let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/input.wav");
     let temp = tempfile::tempdir()?;
     let cancel = yt_media::CancellationToken::new();
@@ -40,12 +45,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "{}",
         serde_json::to_string_pretty(
-            &serde_json::json!({"processing":processing,"verified":verified,"elapsed_seconds":started.elapsed().as_secs_f64()})
+            &serde_json::json!({"processing":processing,"verified":verified,"device":stems.device,"elapsed_seconds":started.elapsed().as_secs_f64()})
         )?
     );
     Ok(())
 }
-#[cfg(not(feature = "native-stems"))]
+#[cfg(not(any(
+    feature = "native-stems",
+    all(feature = "metal-stems", target_os = "macos")
+)))]
 fn main() {
-    eprintln!("Use --features native-stems with LibTorch 2.12 and the exported model.");
+    eprintln!("Use --features metal-stems on macOS or --features native-stems with LibTorch 2.12.");
 }

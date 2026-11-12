@@ -1,0 +1,40 @@
+.dj-analysis__message {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  border-top: 0.5px solid var(--border-subtle);
+}
+
+.dj-strip {
+  display: grid;
+  gap: 6px;
+  padding: 12px 16px 14px;
+  border-top: 0.5px solid var(--border-subtle);
+}
+
+.dj-strip__row {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  align-items: end;
+  gap: 10px;
+}
+
+.dj-strip__label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.dj-strip__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 28px;
+}
+
+.dj-strip__bar {
+  flex: 1;
+  min-height: 1px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--accent) 72%, transparent);
+}

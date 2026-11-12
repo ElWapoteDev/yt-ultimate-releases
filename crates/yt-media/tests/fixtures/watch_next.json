@@ -1,0 +1,594 @@
+{
+ "contents": {
+  "twoColumnWatchNextResults": {
+   "playlist": {
+    "playlist": {
+     "contents": [
+      {
+       "playlistPanelVideoRenderer": {
+        "title": {
+         "accessibility": {
+          "accessibilityData": {
+           "label": "Label 0"
+          }
+         },
+         "simpleText": "Title 0"
+        },
+        "longBylineText": {
+         "runs": [
+          {
+           "text": "Channel 0"
+          }
+         ]
+        },
+        "thumbnail": {
+         "thumbnails": [
+          {
+           "url": "https://i.ytimg.com/vi/fixture0000/hqdefault.jpg",
+           "width": 168,
+           "height": 94
+          },
+          {
+           "url": "https://i.ytimg.com/vi/fixture0000/hqdefault.jpg",
+           "width": 196,
+           "height": 110
+          },
+          {
+           "url": "https://i.ytimg.com/vi/fixture0000/hqdefault.jpg",
+           "width": 246,
+           "height": 138
+          },
+          {
+           "url": "https://i.ytimg.com/vi/fixture0000/hqdefault.jpg",
+           "width": 336,
+           "height": 188
+          }
+         ]
+        },
+        "lengthText": {
+         "accessibility": {
+          "accessibilityData": {
+           "label": "Label 1"
+          }
+         },
+         "simpleText": "4:42"
+        },
+        "selected": true,
+        "videoId": "fixture0000",
+        "shortBylineText": {
+         "runs": [
+          {
+           "text": "Channel 0"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "playlistPanelVideoRenderer": {
+        "title": {
+         "accessibility": {
+          "accessibilityData": {
+           "label": "Label 2"
+          }
+         },
+         "simpleText": "Title 1"
+        },
+        "longBylineText": {
+         "runs": [
+          {
+           "text": "Channel 1"
+          }
+         ]
+        },
+        "thumbnail": {
+         "thumbnails": [
+          {
+           "url": "https://i.ytimg.com/vi/fixture0001/hqdefault.jpg",
+           "width": 168,
+           "height": 94
+          },
+          {
+           "url": "https://i.ytimg.com/vi/fixture0001/hqdefault.jpg",
+           "width": 196,
+           "height": 110
+          },
+          {
+           "url": "https://i.ytimg.com/vi/fixture0001/hqdefault.jpg",
+           "width": 246,
+           "height": 138
+          },
+          {
+           "url": "https://i.ytimg.com/vi/fixture0001/hqdefault.jpg",
+           "width": 336,
+           "height": 188
+          }
+         ]
+        },
+        "lengthText": {
+         "accessibility": {
+          "accessibilityData": {
+           "label": "Label 3"
+          }
+         },
+         "simpleText": "4:47"
+        },
+        "selected": false,
+        "videoId": "fixture0001",
+        "shortBylineText": {
+         "runs": [
+          {
+           "text": "Channel 1"
+          }
+         ]
+        }
+       }
+      },
+      {
+       "playlistPanelVideoRenderer": {
+        "title": {
+         "accessibility": {
+          "accessibilityData": {
+           "label": "Label 4"
+          }
+         },
+         "simpleText": "Title 2"
+        },
+        "longBylineText": {
+         "runs": [
+          {
+           "text": "Channel 2"
+          }
+         ]
+        },
+        "thumbnail": {
+         "thumbnails": [
+          {
+           "url": "https://i.ytimg.com/vi/fixture0002/hqdefault.jpg",
+           "width": 168,
+           "height": 94
+          },
+          {
+           "url": "https://i.ytimg.com/vi/fixture0002/hqdefault.jpg",
+           "width": 196,
+           "height": 110
+          },
+          {
+           "url": "https://i.ytimg.com/vi/fixture0002/hqdefault.jpg",
+           "width": 246,
+           "height": 138
+          },
+          {
+           "url": "https://i.ytimg.com/vi/fixture0002/hqdefault.jpg",
+           "width": 336,
+           "height": 188
+          }
+         ]
+        },
+        "lengthText": {
+         "accessibility": {
+          "accessibilityData": {
+           "label": "Label 5"
+          }
+         },
+         "simpleText": "6:00"
+        },
+        "selected": false,
+        "videoId": "fixture0002",
+        "shortBylineText": {
+         "runs": [
+          {
+           "text": "Channel 2"
+          }
+         ]
+        }
+       }
+      }
+     ]
+    }
+   },
+   "secondaryResults": {
+    "secondaryResults": {
+     "results": [
+      {
+       "lockupViewModel": {
+        "contentImage": {
+         "thumbnailViewModel": {
+          "image": {
+           "sources": [
+            {
+             "url": "https://i.ytimg.com/vi/fixture0003/hqdefault.jpg",
+             "width": 168,
+             "height": 94
+            },
+            {
+             "url": "https://i.ytimg.com/vi/fixture0003/hqdefault.jpg",
+             "width": 336,
+             "height": 188
+            }
+           ]
+          },
+          "overlays": [
+           {
+            "thumbnailBottomOverlayViewModel": {
+             "badges": [
+              {
+               "thumbnailBadgeViewModel": {
+                "text": "3:31",
+                "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT",
+                "animationActivationEntitySelectorType": "THUMBNAIL_BADGE_ANIMATION_ENTITY_SELECTOR_TYPE_PLAYER_STATE"
+               }
+              }
+             ]
+            }
+           }
+          ]
+         }
+        },
+        "metadata": {
+         "lockupMetadataViewModel": {
+          "title": {
+           "content": "Title 3"
+          },
+          "metadata": {
+           "contentMetadataViewModel": {
+            "metadataRows": [
+             {
+              "metadataParts": [
+               {
+                "text": {
+                 "content": "Meta 0"
+                }
+               }
+              ]
+             },
+             {
+              "metadataParts": [
+               {
+                "text": {
+                 "content": "Meta 1"
+                },
+                "accessibilityLabel": "2.5 billion views",
+                "leadingIcon": {
+                 "name": "PLAY_ARROW_OUTLINED",
+                 "height": 12,
+                 "width": 12,
+                 "marginEndToken": {
+                  "spacing": 2
+                 }
+                }
+               },
+               {
+                "text": {
+                 "content": "Meta 2"
+                },
+                "accessibilityLabel": "8 years ago"
+               }
+              ]
+             }
+            ],
+            "delimiter": " "
+           }
+          },
+          "menuButton": {
+           "buttonViewModel": {
+            "iconName": "MORE_VERT",
+            "style": "BUTTON_VIEW_MODEL_STYLE_MONO",
+            "type": "BUTTON_VIEW_MODEL_TYPE_TEXT",
+            "buttonSize": "BUTTON_VIEW_MODEL_SIZE_DEFAULT",
+            "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+           }
+          }
+         }
+        },
+        "contentId": "fixture0003",
+        "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+       }
+      },
+      {
+       "reelShelfRenderer": {
+        "title": {
+         "runs": [
+          {
+           "text": "Title 4"
+          }
+         ]
+        },
+        "items": [
+         {
+          "shortsLockupViewModel": {
+           "entityId": "shorts-fixture",
+           "menuOnTap": {
+            "innertubeCommand": {
+             "showSheetCommand": {
+              "panelLoadingStrategy": {
+               "inlineContent": {
+                "sheetViewModel": {
+                 "content": {
+                  "listViewModel": {
+                   "listItems": [
+                    {
+                     "listItemViewModel": {
+                      "title": {
+                       "content": "Title 5"
+                      },
+                      "leadingImage": {
+                       "sources": [
+                        {
+                         "clientResource": {
+                          "imageName": "ADD_TO_QUEUE_TAIL"
+                         }
+                        }
+                       ]
+                      }
+                     }
+                    },
+                    {
+                     "listItemViewModel": {
+                      "title": {
+                       "content": "Title 6"
+                      },
+                      "leadingImage": {
+                       "sources": [
+                        {
+                         "clientResource": {
+                          "imageName": "FEEDBACK"
+                         }
+                        }
+                       ]
+                      }
+                     }
+                    }
+                   ]
+                  }
+                 }
+                }
+               }
+              }
+             }
+            }
+           },
+           "indexInCollection": 0,
+           "menuOnTapA11yLabel": "More actions",
+           "thumbnailViewModel": {
+            "thumbnailViewModel": {
+             "image": {
+              "sources": [
+               {
+                "url": "https://i.ytimg.com/vi/fixture0004/hqdefault.jpg",
+                "width": 406,
+                "height": 720
+               },
+               {
+                "url": "https://i.ytimg.com/vi/fixture0004/hqdefault.jpg",
+                "width": 406,
+                "height": 609
+               }
+              ]
+             }
+            }
+           },
+           "stackedFrameData": {},
+           "titleTruncationStyle": "SHORTS_LOCKUP_TITLE_TRUNCATION_STYLE_UNKNOWN"
+          }
+         }
+        ]
+       }
+      },
+      {
+       "lockupViewModel": {
+        "contentImage": {
+         "thumbnailViewModel": {
+          "image": {
+           "sources": [
+            {
+             "url": "https://i.ytimg.com/vi/fixture0005/hqdefault.jpg",
+             "width": 168,
+             "height": 94
+            },
+            {
+             "url": "https://i.ytimg.com/vi/fixture0005/hqdefault.jpg",
+             "width": 336,
+             "height": 188
+            }
+           ]
+          },
+          "overlays": [
+           {
+            "thumbnailBottomOverlayViewModel": {
+             "badges": [
+              {
+               "thumbnailBadgeViewModel": {
+                "text": "4:13",
+                "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT",
+                "animationActivationEntitySelectorType": "THUMBNAIL_BADGE_ANIMATION_ENTITY_SELECTOR_TYPE_PLAYER_STATE"
+               }
+              }
+             ]
+            }
+           }
+          ]
+         }
+        },
+        "metadata": {
+         "lockupMetadataViewModel": {
+          "title": {
+           "content": "Title 7"
+          },
+          "metadata": {
+           "contentMetadataViewModel": {
+            "metadataRows": [
+             {
+              "metadataParts": [
+               {
+                "text": {
+                 "content": "Meta 3"
+                }
+               }
+              ]
+             },
+             {
+              "metadataParts": [
+               {
+                "text": {
+                 "content": "Meta 4"
+                },
+                "accessibilityLabel": "6.1 billion views",
+                "leadingIcon": {
+                 "name": "PLAY_ARROW_OUTLINED",
+                 "height": 12,
+                 "width": 12,
+                 "marginEndToken": {
+                  "spacing": 2
+                 }
+                }
+               },
+               {
+                "text": {
+                 "content": "Meta 5"
+                },
+                "accessibilityLabel": "14 years ago"
+               }
+              ]
+             }
+            ],
+            "delimiter": " "
+           }
+          },
+          "menuButton": {
+           "buttonViewModel": {
+            "iconName": "MORE_VERT",
+            "style": "BUTTON_VIEW_MODEL_STYLE_MONO",
+            "type": "BUTTON_VIEW_MODEL_TYPE_TEXT",
+            "buttonSize": "BUTTON_VIEW_MODEL_SIZE_DEFAULT",
+            "state": "BUTTON_VIEW_MODEL_STATE_ACTIVE"
+           }
+          }
+         }
+        },
+        "contentId": "fixture0005",
+        "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+       }
+      },
+      {
+       "lockupViewModel": {
+        "contentImage": {
+         "collectionThumbnailViewModel": {
+          "primaryThumbnail": {
+           "thumbnailViewModel": {
+            "image": {
+             "sources": [
+              {
+               "url": "https://i.ytimg.com/vi/fixture0006/hqdefault.jpg",
+               "width": 168,
+               "height": 94
+              },
+              {
+               "url": "https://i.ytimg.com/vi/fixture0006/hqdefault.jpg",
+               "width": 336,
+               "height": 188
+              }
+             ]
+            },
+            "overlays": [
+             {
+              "thumbnailOverlayBadgeViewModel": {
+               "thumbnailBadges": [
+                {
+                 "thumbnailBadgeViewModel": {
+                  "text": "Text 0",
+                  "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT",
+                  "backgroundColor": {
+                   "lightTheme": 2630426,
+                   "darkTheme": 2630426
+                  }
+                 }
+                }
+               ],
+               "position": "THUMBNAIL_OVERLAY_BADGE_POSITION_BOTTOM_END"
+              }
+             },
+             {
+              "thumbnailHoverOverlayViewModel": {
+               "text": {
+                "content": "Text 1"
+               },
+               "style": "THUMBNAIL_HOVER_OVERLAY_STYLE_COVER"
+              }
+             }
+            ],
+            "backgroundColor": {
+             "lightTheme": 4142633,
+             "darkTheme": 4142633
+            }
+           }
+          },
+          "stackColor": {
+           "lightTheme": 12560261,
+           "darkTheme": 9668470
+          }
+         }
+        },
+        "metadata": {
+         "lockupMetadataViewModel": {
+          "title": {
+           "content": "Title 8"
+          },
+          "metadata": {
+           "contentMetadataViewModel": {
+            "metadataRows": [
+             {
+              "metadataParts": [
+               {
+                "text": {
+                 "content": "Meta 6"
+                }
+               },
+               {
+                "text": {
+                 "content": "Meta 7"
+                }
+               }
+              ]
+             }
+            ],
+            "delimiter": " • "
+           }
+          }
+         }
+        },
+        "contentId": "RDfixture-playlist",
+        "contentType": "LOCKUP_CONTENT_TYPE_PLAYLIST"
+       }
+      },
+      {
+       "continuationItemRenderer": {
+        "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+        "button": {
+         "buttonRenderer": {
+          "style": "STYLE_SUGGESTIVE",
+          "size": "SIZE_DEFAULT",
+          "isDisabled": false,
+          "text": {
+           "runs": [
+            {
+             "text": "Text 2"
+            }
+           ]
+          },
+          "command": {
+           "continuationCommand": {
+            "token": "fixture-token",
+            "request": "CONTINUATION_REQUEST_TYPE_WATCH_NEXT"
+           }
+          }
+         }
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}

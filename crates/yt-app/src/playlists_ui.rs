@@ -10,7 +10,7 @@ use yt_core::{AppCore, Playlist, Track};
 #[component]
 pub fn PlaylistsPage() -> Element {
     let state = use_context::<AppState>();
-    let mut selected = use_signal(|| None::<String>);
+    let mut selected = state.selected_playlist;
     let mut creating = use_signal(|| false);
     let mut name = use_signal(String::new);
     let mut renaming = use_signal(|| None::<Playlist>);
@@ -41,7 +41,7 @@ pub fn PlaylistsPage() -> Element {
                 if *creating.read(){
                     form {class:"anim-fade playlist-create",onsubmit:move |event|{
                         event.prevent_default();let title=name.peek().trim().to_owned();
-                        match create_state.services.core.create_playlist(&title){Ok(playlist)=>{selected.set(Some(playlist.id));name.set(String::new());creating.set(false);create_state.refresh();create_state.notify("Playlist creada");},Err(error)=>create_state.notify(error.to_string())}
+                        match create_state.services.core.create_playlist(&title){Ok(playlist)=>{selected.set(Some(playlist.id));name.set(String::new());creating.set(false);create_state.refresh();create_state.notify_success("Playlist creada");},Err(error)=>create_state.notify_error(error.to_string())}
                     },onkeydown:move |event|{if event.key()==Key::Escape{event.stop_propagation();creating.set(false);name.set(String::new());}},
                         div {class:"input-search-wrap",input {class:"input-search playlist-name-input",placeholder:"Nombre de la playlist…",aria_label:"Nombre de la nueva playlist",value:"{name}",onmounted:|event|async move{let _=event.set_focus(true).await;},oninput:move |event|name.set(event.value())}}
                         button {class:"btn-accent",r#type:"submit",disabled:name.read().trim().is_empty(),"Crear"}
@@ -85,10 +85,10 @@ pub fn PlaylistsPage() -> Element {
             }
         }
         if let Some(playlist)=renaming.read().clone(){
-            PlaylistNameDialog {key:"{playlist.id}",playlist:playlist.clone(),onclose:move |_|renaming.set(None),onsave:{let state=state.clone();move |name:String|match state.services.core.rename_playlist(&playlist.id,&name){Ok(())=>{renaming.set(None);state.refresh();state.notify("Playlist renombrada");},Err(error)=>state.notify(error.to_string())}}}
+            PlaylistNameDialog {key:"{playlist.id}",playlist:playlist.clone(),onclose:move |_|renaming.set(None),onsave:{let state=state.clone();move |name:String|match state.services.core.rename_playlist(&playlist.id,&name){Ok(())=>{renaming.set(None);state.refresh();state.notify_success("Playlist renombrada");},Err(error)=>state.notify_error(error.to_string())}}}
         }
         if let Some(playlist)=deleting.read().clone(){
-            DeletePlaylistDialog {playlist:playlist.clone(),onclose:move |_|deleting.set(None),onconfirm:{let state=state.clone();move |_|match state.services.core.delete_playlist(&playlist.id){Ok(())=>{let clear=selected.peek().as_deref()==Some(&playlist.id);if clear{selected.set(None);}deleting.set(None);state.refresh();state.notify("Playlist eliminada");},Err(error)=>state.notify(error.to_string())}}}
+            DeletePlaylistDialog {playlist:playlist.clone(),onclose:move |_|deleting.set(None),onconfirm:{let state=state.clone();move |_|match state.services.core.delete_playlist(&playlist.id){Ok(())=>{let clear=selected.peek().as_deref()==Some(&playlist.id);if clear{selected.set(None);}deleting.set(None);state.refresh();state.notify_success("Playlist eliminada");},Err(error)=>state.notify_error(error.to_string())}}}
         }
     }
 }
@@ -204,7 +204,7 @@ fn PlaylistTrack(
         draggable:!track.missing&&!track.path.as_os_str().is_empty(),
         ondragstart:move|event|{event.prevent_default();event.stop_propagation();crate::native::begin_media_drag(&native_state,&native_track);},
         ondragover:move |event|{if dragging.peek().is_some(){event.prevent_default();event.stop_propagation();}},ondrop:{let state=state.clone();let playlist_id=playlist_id.clone();move |event|{
-            let source=dragging.peek().clone();if let Some(source)=source{event.prevent_default();event.stop_propagation();dragging.set(None);let result=state.services.core.playlist_tracks(&playlist_id).and_then(|tracks|{let mut ids=tracks.into_iter().map(|track|track.id).collect::<Vec<_>>();move_before(&mut ids,&source,&drop_id);state.services.core.reorder_playlist(&playlist_id,&ids)});match result{Ok(())=>state.refresh(),Err(error)=>state.notify(error.to_string())}}
+            let source=dragging.peek().clone();if let Some(source)=source{event.prevent_default();event.stop_propagation();dragging.set(None);let result=state.services.core.playlist_tracks(&playlist_id).and_then(|tracks|{let mut ids=tracks.into_iter().map(|track|track.id).collect::<Vec<_>>();move_before(&mut ids,&source,&drop_id);state.services.core.reorder_playlist(&playlist_id,&ids)});match result{Ok(())=>state.refresh(),Err(error)=>state.notify_error(error.to_string())}}
         }},
         button {class:"btn-icon-sm playlist-drag-handle",title:"Arrastrar para reordenar",aria_label:move_label,draggable:true,ondragstart:move |event|{event.stop_propagation();dragging.set(Some(drag_id.clone()));},ondragend:move |_|dragging.set(None),Icon{name:"list",size:12}}
         button {class:"playlist-track-play",onclick:move |_|{if active{play_state.toggle_play();}else{play_state.play(play_track.clone());}},
@@ -217,7 +217,7 @@ fn PlaylistTrack(
             button {class:"btn-icon-sm",title:"Mover abajo",disabled:index+1>=total,onclick:{let state=state.clone();let playlist_id=playlist_id.clone();move |_|move_step(&state,&playlist_id,&down_id,1)},"↓"}
         }
         div {class:"row__actions",
-            button {class:"btn-icon-sm",title:"Quitar de la playlist",onclick:move |_|match state.services.core.remove_from_playlist(&playlist_id,&remove_id){Ok(())=>state.refresh(),Err(error)=>state.notify(error.to_string())},Icon{name:"close",size:13}}
+            button {class:"btn-icon-sm",title:"Quitar de la playlist",onclick:move |_|match state.services.core.remove_from_playlist(&playlist_id,&remove_id){Ok(())=>state.refresh(),Err(error)=>state.notify_error(error.to_string())},Icon{name:"close",size:13}}
         }
     }}
 }
@@ -245,7 +245,7 @@ fn playlist_menu(
         .remove_from_playlist(&playlist_id, &track.id)
     {
         Ok(()) => state.refresh(),
-        Err(error) => state.notify(error.to_string()),
+        Err(error) => state.notify_error(error.to_string()),
     }));
     items.push(Entry::separator());
     items.extend(
@@ -282,7 +282,7 @@ fn move_step(state: &AppState, playlist: &str, track: &str, offset: isize) {
         });
     match result {
         Ok(()) => state.refresh(),
-        Err(error) => state.notify(error.to_string()),
+        Err(error) => state.notify_error(error.to_string()),
     }
 }
 fn move_before(ids: &mut Vec<String>, source: &str, destination: &str) {

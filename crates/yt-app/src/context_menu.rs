@@ -153,7 +153,7 @@ impl Menus {
                 }
                 Err(error) => {
                     if let Some(state) = try_consume_context::<AppState>() {
-                        state.notify(format!("No se pudo abrir el menú: {error}"));
+                        state.notify_error(format!("No se pudo abrir el menú: {error}"));
                     }
                 }
             }
@@ -251,7 +251,7 @@ pub fn edit_current(state: &AppState, op: &str) {
         }
         .await;
         if let Err(error) = result {
-            state.notify(format!("No se pudo editar el texto: {error}"));
+            state.notify_error(format!("No se pudo editar el texto: {error}"));
         }
     });
 }
@@ -286,7 +286,7 @@ pub fn show_edit(event: MouseEvent, state: AppState, menus: Menus) {
                 dioxus::core::spawn_forever(async move {
                     let result = run_edit(token, op).await;
                     if let Err(error) = result {
-                        state.notify(format!("No se pudo editar el texto: {error}"));
+                        state.notify_error(format!("No se pudo editar el texto: {error}"));
                     }
                 });
             })
@@ -518,6 +518,12 @@ pub fn home_items(state: AppState, track: Track) -> Vec<Entry> {
                         "Reproducir"
                             | "Reproducir a continuación"
                             | "Agregar a la cola"
+                            | crate::favorites::ADD_LABEL
+                            | crate::favorites::REMOVE_LABEL
+                            | crate::navigation::STATION_LABEL
+                            | crate::navigation::ARTIST_LABEL
+                            | crate::navigation::ALBUM_LABEL
+                            | crate::credits_ui::CREDITS_LABEL
                             | "Mostrar en Finder"
                             | "Mostrar en Explorador"
                             | "Abrir con la app predeterminada"
@@ -565,16 +571,19 @@ pub fn track_items(state: AppState, track: Track) -> Vec<Entry> {
             let mut queue = next.queue;
             queue.write().insert(0, next_track.clone());
             next.persist_playback();
-            next.notify("Se reproducirá a continuación");
+            next.notify_success("Se reproducirá a continuación");
         }),
         Entry::action("Agregar a la cola", move || {
             let mut queue = later.queue;
             queue.write().push(later_track.clone());
             later.persist_playback();
-            later.notify("Agregado a la cola");
+            later.notify_success("Agregado a la cola");
         }),
+        crate::favorites::favorite_entry(&state, &track),
         Entry::separator(),
     ];
+    entries.extend(crate::navigation::browse_entries(&state, &track));
+    entries.push(Entry::separator());
     let mut playlists = Vec::new();
     for playlist in state.playlists.peek().iter().cloned() {
         let state = state.clone();
@@ -585,9 +594,9 @@ pub fn track_items(state: AppState, track: Track) -> Vec<Entry> {
                 match state.services.core.add_to_playlist(&playlist.id, &id) {
                     Ok(_) => {
                         state.refresh();
-                        state.notify(format!("Añadido a \"{}\"", playlist.name));
+                        state.notify_success(format!("Añadido a \"{}\"", playlist.name));
                     }
-                    Err(error) => state.notify(error.to_string()),
+                    Err(error) => state.notify_error(error.to_string()),
                 }
             })
             .enabled(local),
@@ -623,7 +632,9 @@ pub fn track_items(state: AppState, track: Track) -> Vec<Entry> {
                 );
             })
             .enabled(
-                local && cfg!(feature = "native-stems") && metadata["playlist"] != "Separaciones",
+                local
+                    && crate::processing::SEPARATOR_INCLUDED
+                    && metadata["playlist"] != "Separaciones",
             ),
         );
         let mut variants = Vec::new();
@@ -651,7 +662,7 @@ pub fn track_items(state: AppState, track: Track) -> Vec<Entry> {
                     crate::processing::ProcessingTask::Quality,
                 );
             })
-            .enabled(cfg!(feature = "native-stems")),
+            .enabled(crate::processing::SEPARATOR_INCLUDED),
         );
         entries.push(
             Entry::submenu("Modificar fingerprint", variants).enabled(
@@ -730,7 +741,7 @@ fn DeleteDialog(track: Track) -> Element {
         div{class:"modal-body",p{"{track.title}"}p{class:"rust-settings-note","{track.path.display()}"}}
         div{class:"modal-actions",button{class:"btn-secondary",onclick:move |_|cancel.dismiss(),"Cancelar"}
             button{class:"btn-accent rust-danger",onclick:move |_|{let core=state.services.core.clone();let id=track.id.clone();let state=state.clone();done.dismiss();dioxus::core::spawn_forever(async move{
-                match tokio::task::spawn_blocking(move||core.delete_track_file(&id)).await{Ok(Ok(()))=>{state.refresh();state.notify("Archivo eliminado");},Ok(Err(error))=>state.notify(format!("No se pudo eliminar el archivo: {error}")),Err(error)=>state.notify(error.to_string())}
+                match tokio::task::spawn_blocking(move||core.delete_track_file(&id)).await{Ok(Ok(()))=>{state.refresh();state.notify_success("Archivo eliminado");},Ok(Err(error))=>state.notify_error(format!("No se pudo eliminar el archivo: {error}")),Err(error)=>state.notify_error(error.to_string())}
             });},"Eliminar"}
         }
     }}}
@@ -742,7 +753,7 @@ fn PlaylistDialog(track: Track) -> Element {
     let close = menus.clone();
     let cancel = menus.clone();
     let mut name = use_signal(String::new);
-    rsx! {div{class:"modal-backdrop",onclick:move |_|close.dismiss(),form{class:"modal-panel",role:"dialog",aria_label:"Nueva playlist",onclick:|event|event.stop_propagation(),onsubmit:move|event|{event.prevent_default();let value=name.peek().trim().to_owned();if value.is_empty(){return;}let result=state.services.core.create_playlist(&value).and_then(|playlist|state.services.core.add_to_playlist(&playlist.id,&track.id));state.refresh();match result{Ok(_)=>{menus.dismiss();state.notify(format!("Playlist \"{value}\" creada"));},Err(error)=>state.notify(error.to_string())}},
+    rsx! {div{class:"modal-backdrop",onclick:move |_|close.dismiss(),form{class:"modal-panel",role:"dialog",aria_label:"Nueva playlist",onclick:|event|event.stop_propagation(),onsubmit:move|event|{event.prevent_default();let value=name.peek().trim().to_owned();if value.is_empty(){return;}let result=state.services.core.create_playlist(&value).and_then(|playlist|state.services.core.add_to_playlist(&playlist.id,&track.id));state.refresh();match result{Ok(_)=>{menus.dismiss();state.notify_success(format!("Playlist \"{value}\" creada"));},Err(error)=>state.notify_error(error.to_string())}},
         div{class:"modal-header",div{class:"modal-title","Nombre de la nueva playlist:"}}
         div{class:"modal-body",input{class:"input-search",autofocus:true,aria_label:"Nombre de la nueva playlist",value:"{name}",oninput:move|event|name.set(event.value())}}
         div{class:"modal-actions",button{r#type:"button",class:"btn-secondary",onclick:move |_|cancel.dismiss(),"Cancelar"}button{r#type:"submit",class:"btn-accent",disabled:name.read().trim().is_empty(),"Crear"}}
@@ -784,15 +795,18 @@ mod tests {
                 .map(|entry| entry.label.as_str())
                 .collect::<Vec<_>>();
             assert_eq!(
-                &labels[..4],
+                &labels[..5],
                 [
                     "Reproducir",
                     "Reproducir a continuación",
                     "Agregar a la cola",
-                    "Versión Alvin y las ardillas…"
+                    crate::favorites::ADD_LABEL,
+                    crate::navigation::STATION_LABEL,
                 ]
             );
-            assert_eq!(labels.len(), 7);
+            assert!(labels.contains(&"Versión Alvin y las ardillas…"));
+            assert!(labels.contains(&crate::credits_ui::CREDITS_LABEL));
+            assert_eq!(labels.len(), 10);
             home[1].action.as_ref().unwrap()();
             home[2].action.as_ref().unwrap()();
             assert_eq!(

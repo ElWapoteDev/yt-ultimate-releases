@@ -1,18 +1,67 @@
 //! In-process application state for the Windows and macOS Rust frontends.
 //! No Python runtime, HTTP service or child process is required.
 
+mod album_artwork;
 mod artwork;
+mod audio_features;
 mod cleanup;
+mod credits;
+mod discovery_cache;
+mod dj_analysis;
+mod favorites;
+mod followed_artists;
 mod jobs;
 mod library;
+mod library_index;
+mod listening;
+mod lyrics;
+mod media;
+mod migrations;
 mod models;
+mod normalize;
 mod playlists;
+mod search_history;
 mod settings;
+mod source_rights;
+mod track_analysis;
 mod video_metadata;
 
-pub use artwork::{MAX_ARTWORK_BYTES, validate_artwork};
+pub use album_artwork::{ALBUM_ARTWORK_LIMIT, AlbumArtwork};
+pub use artwork::{MAX_ARTWORK_BYTES, artwork_samples, is_video_frame, validate_artwork};
+pub use audio_features::AudioFeatures;
+pub use credits::{CreditRole, Credits, MAX_CREDIT_CHARS, MAX_CREDIT_NAMES, MAX_CREDIT_ROLES};
+pub use discovery_cache::{
+    CachedDiscovery, CachedPayload, DISCOVERY_CACHE_LIMIT, DISCOVERY_LIST_LIMIT, MAX_PAYLOAD_BYTES,
+};
+pub use dj_analysis::{DJ_ANALYSIS_LIMIT, MAX_ANALYSIS_KEY_BYTES};
+pub use favorites::FavoriteEntry;
+pub use followed_artists::{FollowedArtist, is_channel_id};
+pub use library_index::{
+    LibraryAlbum, LibraryArtist, library_album, library_albums, library_artists,
+};
+pub use listening::{
+    LISTENING_EVENT_LIMIT, ListenEnd, ListenId, ListenProgress, ListenSignal, ListenSource,
+    ListenTarget, ListeningErasure,
+};
+pub use lyrics::{
+    CachedLyrics, LyricLine, LyricWord, Lyrics, LyricsCandidate, LyricsLookup, LyricsQuery,
+    LyricsSource, MAX_LINE_CHARS, MAX_LINE_WORDS, MAX_LYRICS_BYTES, MAX_LYRICS_LINES,
+};
+pub use media::{MediaItem, REMOTE_ID_PREFIX, RemoteMedia};
 pub use models::*;
-pub use settings::Settings;
+pub use normalize::{
+    FOLDED_APOSTROPHE, SongTitle, artist_key, clean_artist, contains_words, fold, fold_into,
+    fold_words, song_title, title_key,
+};
+pub use search_history::{MAX_SEARCH_CHARS, SEARCH_HISTORY_LIMIT, SearchHistoryEntry};
+pub use settings::{
+    AppearancePreferences, CrossfadeCurve, DiscoveryPreferences, DjStyle, LyricsPreferences,
+    MixLength, PlaybackPreferences, RegionPreferences, Settings,
+};
+pub use source_rights::{MediaOrigin, SourceRights};
+pub use track_analysis::{
+    BandEnergy, KeyEstimate, KeyMode, Meter, PitchClass, Section, Subdivision, TrackAnalysis,
+};
 
 use rusqlite::{Connection, OptionalExtension};
 use std::{
@@ -93,35 +142,27 @@ impl AppCore {
                 ));
             }
         }
-        let initialized: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='rust_schema_migrations')", [], |r| r.get(0),
-        )?;
-        if initialized {
-            let version: i64 = db.query_row(
-                "SELECT COALESCE(MAX(version),0) FROM rust_schema_migrations",
-                [],
-                |r| r.get(0),
-            )?;
-            if version > 2 {
-                return Err(CoreError::Invalid(format!(
-                    "Database requires a newer Rust application (schema {version}); it was not changed"
-                )));
-            }
+        let rust_version = migrations::version(&db)?;
+        if rust_version > migrations::LATEST_VERSION {
+            return Err(CoreError::Invalid(format!(
+                "Database requires a newer Rust application (schema {rust_version}); it was not changed"
+            )));
         }
+        let initialized = rust_version > 0;
         if !initialized && legacy_schema {
-            // SQLite's backup API includes committed WAL pages. A plain file
-            // copy would silently lose records from an active WAL database.
-            let backup_path =
-                profile_dir.join(format!("pre-rust-{}.sqlite3", uuid::Uuid::new_v4()));
-            let mut destination = Connection::open(backup_path)?;
-            let backup = rusqlite::backup::Backup::new(&db, &mut destination)?;
-            backup.run_to_completion(128, Duration::from_millis(10), None)?;
+            migrations::backup(
+                &db,
+                &profile_dir.join(format!("pre-rust-{}.sqlite3", uuid::Uuid::new_v4())),
+            )?;
         }
         db.pragma_update(None, "journal_mode", "WAL")?;
         db.pragma_update(None, "synchronous", "NORMAL")?;
         let transaction = db.transaction()?;
         transaction.execute_batch(include_str!("schema.sql"))?;
         transaction.commit()?;
+        // A legacy profile was just backed up as a whole; an existing Rust
+        // profile is backed up by the migrator before its first pending step.
+        migrations::migrate(&mut db, initialized.then_some(profile_dir.as_path()))?;
 
         let core = Self {
             db: Arc::new(Mutex::new(db)),
@@ -130,6 +171,7 @@ impl AppCore {
             library_dir: Arc::new(library_dir),
         };
         core.recover_interrupted_jobs()?;
+        core.recover_interrupted_listens()?;
         Ok(core)
     }
 

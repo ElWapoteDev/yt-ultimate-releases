@@ -1,0 +1,131 @@
+{
+ "contents": {
+  "singleColumnMusicWatchNextResultsRenderer": {
+   "tabbedRenderer": {
+    "watchNextTabbedResultsRenderer": {
+     "tabs": [
+      {
+       "tabRenderer": {
+        "content": {
+         "musicQueueRenderer": {
+          "content": {
+           "playlistPanelRenderer": {
+            "contents": [
+             {
+              "playlistPanelVideoRenderer": {
+               "title": {
+                "runs": [
+                 {
+                  "text": "Title 34"
+                 }
+                ]
+               },
+               "longBylineText": {
+                "runs": [
+                 {
+                  "text": "Artist 13",
+                  "navigationEndpoint": {
+                   "browseEndpoint": {
+                    "browseId": "UCfixtureChannel00000013",
+                    "browseEndpointContextSupportedConfigs": {
+                     "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                     }
+                    }
+                   }
+                  }
+                 },
+                 {
+                  "text": " y "
+                 },
+                 {
+                  "text": "Artist 14",
+                  "navigationEndpoint": {
+                   "browseEndpoint": {
+                    "browseId": "UCfixtureChannel00000014",
+                    "browseEndpointContextSupportedConfigs": {
+                     "browseEndpointContextMusicConfig": {
+                      "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                     }
+                    }
+                   }
+                  }
+                 },
+                 {
+                  "text": " • "
+                 },
+                 {
+                  "text": "9170 M de vistas"
+                 },
+                 {
+                  "text": " • "
+                 },
+                 {
+                  "text": "Title 35"
+                 }
+                ]
+               },
+               "thumbnail": {
+                "thumbnails": [
+                 {
+                  "url": "https://i.ytimg.com/vi/fixture0020/hq720.jpg",
+                  "width": 800
+                 },
+                 {
+                  "url": "https://i.ytimg.com/vi/fixture0020/hq720.jpg",
+                  "width": 853
+                 }
+                ]
+               },
+               "lengthText": {
+                "runs": [
+                 {
+                  "text": "4:42"
+                 }
+                ]
+               },
+               "navigationEndpoint": {
+                "watchEndpoint": {
+                 "videoId": "fixture0020",
+                 "watchEndpointMusicSupportedConfigs": {
+                  "watchEndpointMusicConfig": {
+                   "hasPersistentPlaylistPanel": true,
+                   "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                  }
+                 }
+                }
+               },
+               "videoId": "fixture0020",
+               "shortBylineText": {
+                "runs": [
+                 {
+                  "text": "Title 36"
+                 },
+                 {
+                  "text": " y "
+                 },
+                 {
+                  "text": "Title 37"
+                 }
+                ]
+               }
+              }
+             }
+            ]
+           }
+          }
+         }
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "currentVideoEndpoint": {
+  "watchEndpoint": {
+   "videoId": "fixture0020"
+  }
+ }
+}

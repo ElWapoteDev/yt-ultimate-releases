@@ -1,7 +1,7 @@
 use crate::{
     app::{artwork_src, EmptyState, Thumb},
     icons::Icon,
-    processing::{start_processing, ProcessingTask},
+    processing::{separator_label, start_processing, ProcessingTask, REQUIRES_METAL},
     state::{size_label, AppState, Page},
 };
 use dioxus::prelude::*;
@@ -115,6 +115,7 @@ pub fn ProcessingPage() -> Element {
     let selection_is_empty = selection.is_none();
     let selection_for_start = selection.clone();
     let start_state = state.clone();
+    let model_label = separator_label();
     let device = if cfg!(target_os = "windows") {
         "tu PC"
     } else {
@@ -123,7 +124,7 @@ pub fn ProcessingPage() -> Element {
     rsx! {
         style {{include_str!("processing_ui.css")}}
         div {class:"page-shell processing-page",
-            div {class:"toolbar",div {class:"toolbar__left",h1 {class:"page-title","Stems"}span {class:"page-count",if cfg!(feature="native-stems"){"BS-RoFormer viperx SDR 12.9755"}else{"Modelo local"}}}}
+            div {class:"toolbar",div {class:"toolbar__left",h1 {class:"page-title","Stems"}span {class:"page-count","{model_label}" if REQUIRES_METAL {" · Metal"}}}}
             div {class:"page-subtitle processing-subtitle","Separa la voz y el instrumental de cualquier canción, directamente en {device}."}
             div {class:"stems-layout",
                 div {class:"stems-main",
@@ -155,7 +156,6 @@ pub fn ProcessingPage() -> Element {
                             button {class:"btn-accent stems-start",disabled,onclick:move |_|{
                                 if let Some(track)=&selection_for_start {
                                     if start_processing(start_state.clone(),track.id.clone(),ProcessingTask::StemsFormat(current_format.audio())) {
-                                        start_state.notify("Separación iniciada");
                                         if let Ok(current)=start_state.services.core.jobs(){jobs.set(current);}
                                     }
                                 }
@@ -284,7 +284,7 @@ fn ProcessingJobCard(job: Job, library: Vec<Track>) -> Element {
         }
         if active {span {class:"task-row__pct","{progress:.0}%"}button {class:"btn-icon-sm",title:"Cancelar",aria_label:format!("Cancelar {title}"),disabled:requested,onclick:move |_|{
             let token=state.cancellations.peek().get(&id).cloned();
-            if let Some(token)=token {token.cancel();canceling.set(true);}else{state.notify("El trabajo ya terminó o no está activo en esta sesión.");}
+            if let Some(token)=token {token.cancel();canceling.set(true);}else{state.notify_warning("El trabajo ya terminó o no está activo en esta sesión.");}
         },Icon{name:"close",size:13}}}
     }}
 }
@@ -398,7 +398,10 @@ fn number_label(value: f64) -> String {
     }
 }
 fn model_information() -> Result<u64, String> {
-    #[cfg(feature = "native-stems")]
+    #[cfg(any(
+        feature = "native-stems",
+        all(feature = "metal-stems", target_os = "macos")
+    ))]
     {
         let path = crate::processing::model_path()?;
         let metadata = std::fs::metadata(path).map_err(|_| {
@@ -410,7 +413,10 @@ fn model_information() -> Result<u64, String> {
             Err("La ruta del modelo no es un archivo.".into())
         }
     }
-    #[cfg(not(feature = "native-stems"))]
+    #[cfg(not(any(
+        feature = "native-stems",
+        all(feature = "metal-stems", target_os = "macos")
+    )))]
     {
         Err("La separación y CALIDAD requieren la edición con herramientas de audio. Las variaciones y la versión ardilla están disponibles.".into())
     }
@@ -432,9 +438,9 @@ fn save_generated_output(state: AppState, track: Track) {
             tokio::task::spawn_blocking(move || copy_completed_output(&track.path, &destination))
                 .await;
         match result {
-            Ok(Ok(())) => state.notify("Resultado guardado"),
-            Ok(Err(error)) => state.notify(format!("No se pudo guardar: {error}")),
-            Err(error) => state.notify(format!("No se pudo guardar: {error}")),
+            Ok(Ok(())) => state.notify_success("Resultado guardado"),
+            Ok(Err(error)) => state.notify_error(format!("No se pudo guardar: {error}")),
+            Err(error) => state.notify_error(format!("No se pudo guardar: {error}")),
         }
     });
 }

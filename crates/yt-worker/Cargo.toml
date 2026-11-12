@@ -1,0 +1,35 @@
+[package]
+name = "yt-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The YT Ultimate DJ's compute worker (ytu-worker), its job protocol, its power governor and the client that runs it"
+
+[[bin]]
+name = "ytu-worker"
+path = "src/main.rs"
+
+[dependencies]
+yt-core = { path = "../yt-core" }
+yt-media = { path = "../yt-media" }
+yt-mir = { path = "../yt-mir" }
+yt-mix = { path = "../yt-mix" }
+hound = "3.5"
+rodio = { version = "0.21.1", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["io-util", "macros", "process", "rt", "sync", "time"] }
+tokio-util = "0.7"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSProcessInfo"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Power", "Win32_System_Threading"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

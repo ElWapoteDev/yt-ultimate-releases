@@ -1,12 +1,15 @@
 /* ════════════════════════════════════════════════════
    YT Ultimate · Minimal Design System
-   Calm dark · SF Pro · one accent (#fc3c44)
+   Calm dark · SF Pro · one accent that follows the playing cover
+   (src/theme.rs overrides --accent, --accent-hover, --on-accent, --tint
+   and the ambient glow; #fc3c44 when nothing with artwork is playing)
    ════════════════════════════════════════════════════ */
 
 :root {
   color-scheme: dark;
 
-  /* Background layers */
+  /* Background layers. --bg-canvas must stay yt_theme::DEFAULT_BACKGROUND:
+     theme accents are fitted for legibility on it. */
   --bg-base: #18181a;
   --bg-canvas: #18181a;
   --bg-secondary: #1f1f22;
@@ -22,8 +25,10 @@
 
   /* Accent */
   --accent: #fc3c44;
-  --accent-hover: #ff5159;
-  --accent-subtle: rgba(252, 60, 68, 0.13);
+  --accent-hover: color-mix(in oklab, var(--accent) 84%, white);
+  --accent-subtle: color-mix(in srgb, var(--accent) 14%, transparent);
+  --on-accent: #fff;
+  --tint: transparent;
 
   /* Text hierarchy */
   --text-primary: rgba(255, 255, 255, 0.96);
@@ -54,13 +59,33 @@
   --radius-xl: 18px;
 
   /* Layout */
-  --sidebar-width: 212px;
+  --sidebar-width: 200px;
   --player-height: 84px;
   --titlebar-height: 52px;
   --page-x: 40px;
 
   /* Motion */
   --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* Registered so only the elements that paint with them (.app-ambient and the
+   full-screen aurora blobs) animate them; they never inherit. */
+@property --ambient {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: transparent;
+}
+
+@property --ambient-2 {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: transparent;
+}
+
+@property --ambient-3 {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: transparent;
 }
 
 /* ════════ RESET ════════ */
@@ -114,7 +139,7 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
-::selection { background: rgba(252, 60, 68, 0.30); }
+::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
 
 [hidden] { display: none !important; }
 
@@ -140,6 +165,16 @@ input:focus-visible {
   position: relative;
   background: var(--bg-canvas);
   overflow: hidden;
+}
+
+.app-ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 70% at 18% -12%, color-mix(in oklab, var(--ambient) 60%, transparent), transparent 64%),
+    radial-gradient(90% 60% at 104% 112%, color-mix(in oklab, var(--ambient-2) 34%, transparent), transparent 62%);
+  transition: --ambient 900ms var(--ease-out), --ambient-2 900ms var(--ease-out);
 }
 
 .content-drag {
@@ -184,7 +219,6 @@ input:focus-visible {
   background: var(--surface-translucent);
   -webkit-backdrop-filter: var(--blur-thick);
   backdrop-filter: var(--blur-thick);
-  border-right: 0.5px solid var(--border-subtle);
   overflow: hidden;
   position: relative;
   user-select: none;
@@ -408,7 +442,7 @@ input:focus-visible {
 
 .player-options__rates button:hover,
 .player-options__rates button.active {
-  color: white;
+  color: var(--on-accent);
   background: var(--accent);
 }
 
@@ -455,7 +489,7 @@ input:focus-visible {
   height: 58px;
   margin-bottom: 13px;
   border-radius: 15px;
-  color: white;
+  color: var(--on-accent);
   background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 82%, white), var(--accent));
   box-shadow: 0 12px 32px color-mix(in srgb, var(--accent) 36%, transparent);
 }
@@ -511,7 +545,7 @@ input:focus-visible {
   padding: 0 5px;
   border-radius: 100px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 10px;
   font-weight: 700;
   display: inline-flex;
@@ -749,7 +783,7 @@ input:focus-visible {
   height: 26px;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -932,7 +966,7 @@ input:focus-visible {
   justify-content: center;
   gap: 6px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border: none;
   height: 32px;
   padding: 0 16px;
@@ -1274,7 +1308,7 @@ input:focus-visible {
   bottom: -4px;
   right: -4px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 9px;
   font-weight: 700;
   padding: 1px 5px;
@@ -1320,10 +1354,11 @@ input:focus-visible {
   align-items: center;
   gap: 16px;
   padding: 0 16px;
-  background: var(--surface-translucent);
+  background:
+    linear-gradient(to top, color-mix(in oklab, var(--tint) 22%, transparent), transparent),
+    var(--surface-translucent);
   -webkit-backdrop-filter: var(--blur-thick);
   backdrop-filter: var(--blur-thick);
-  border-top: 0.5px solid var(--border-subtle);
   position: relative;
   z-index: 60;
 }
@@ -1437,8 +1472,8 @@ input:focus-visible {
 .player-btn-play {
   width: 34px;
   height: 34px;
-  background: var(--text-primary);
-  color: var(--bg-base) !important;
+  background: var(--accent);
+  color: var(--on-accent) !important;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -1446,7 +1481,7 @@ input:focus-visible {
   margin: 0 4px;
 }
 
-.player-btn-play:hover { background: #fff; }
+.player-btn-play:hover { background: var(--accent-hover); }
 
 .player-progress-section {
   width: 100%;
@@ -1489,7 +1524,7 @@ input:focus-visible {
 
 .player-progress-fill {
   height: 3.5px;
-  background: var(--text-secondary);
+  background: var(--accent);
   border-radius: 100px;
   position: relative;
   z-index: 1;
@@ -1498,7 +1533,7 @@ input:focus-visible {
 
 .player-progress-track:hover .player-progress-fill,
 .player-progress-track.scrubbing .player-progress-fill {
-  background: var(--accent);
+  background: var(--accent-hover);
 }
 
 .player-progress-track:hover .player-progress-fill::after,
@@ -1693,7 +1728,7 @@ input:focus-visible {
 .context-menu-item:hover,
 .context-menu-item--open {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .context-menu-item.danger { color: var(--system-red); }
@@ -1820,8 +1855,7 @@ input:focus-visible {
 /* ════════ SETTINGS ════════ */
 
 .settings-section {
-  background: var(--bg-secondary);
-  border: 0.5px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
   border-radius: var(--radius-lg);
   margin-bottom: 14px;
   overflow: hidden;
@@ -1838,7 +1872,7 @@ input:focus-visible {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: var(--bg-tertiary);
+  background: transparent;
   color: var(--text-secondary);
   display: flex;
   align-items: center;
@@ -1912,7 +1946,7 @@ input:focus-visible {
 .settings-row__check.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .settings-stat-grid {
@@ -2001,9 +2035,8 @@ input:focus-visible {
 .settings-disclosure {
   margin-bottom: 14px;
   overflow: hidden;
-  border: 0.5px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
 }
 
 .settings-disclosure summary {
