@@ -123,7 +123,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn read_f32(path: &PathBuf) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
     let bytes = std::fs::read(path)?;
     Ok(bytes
-        .chunks_exact(4)
-        .map(|word| f32::from_le_bytes([word[0], word[1], word[2], word[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|word| f32::from_le_bytes(*word))
         .collect())
 }

@@ -281,8 +281,10 @@ pub(crate) fn dot(left: &[f64], right: &[f64]) -> f64 {
     let split = length - length % DOT_LANES;
     let mut lanes = [0.0; DOT_LANES];
     for (left, right) in left[..split]
-        .chunks_exact(DOT_LANES)
-        .zip(right[..split].chunks_exact(DOT_LANES))
+        .as_chunks::<DOT_LANES>()
+        .0
+        .iter()
+        .zip(right[..split].as_chunks::<DOT_LANES>().0)
     {
         for ((lane, a), b) in lanes.iter_mut().zip(left).zip(right) {
             *lane += a * b;

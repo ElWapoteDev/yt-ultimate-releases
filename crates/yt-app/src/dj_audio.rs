@@ -163,8 +163,10 @@ async fn take_samples(path: PathBuf, count: usize) -> Option<Vec<f32>> {
     }
     Some(
         bytes
-            .chunks_exact(SAMPLE_BYTES)
-            .map(|word| f32::from_le_bytes([word[0], word[1], word[2], word[3]]))
+            .as_chunks::<SAMPLE_BYTES>()
+            .0
+            .iter()
+            .map(|word| f32::from_le_bytes(*word))
             .collect(),
     )
 }

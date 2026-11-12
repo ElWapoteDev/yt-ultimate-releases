@@ -237,7 +237,7 @@ impl StemSeparator {
 fn prepare_window(interleaved: &[f32], planar: &mut [f32]) {
     let frames = interleaved.len() / 2;
     let (left, right) = planar.split_at_mut(BLOCK);
-    for (index, frame) in interleaved.chunks_exact(2).enumerate() {
+    for (index, frame) in interleaved.as_chunks::<2>().0.iter().enumerate() {
         left[index] = frame[0];
         right[index] = frame[1];
     }

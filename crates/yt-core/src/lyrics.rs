@@ -751,7 +751,7 @@ fn decode_text(bytes: &[u8]) -> Cow<'_, str> {
         return String::from_utf8_lossy(rest);
     }
     let utf16 = |rest: &[u8], decode: fn([u8; 2]) -> u16| {
-        let units = rest.chunks_exact(2).map(|pair| decode([pair[0], pair[1]]));
+        let units = rest.as_chunks::<2>().0.iter().map(|pair| decode(*pair));
         char::decode_utf16(units)
             .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
             .collect::<String>()

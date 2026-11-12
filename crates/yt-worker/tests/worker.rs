@@ -575,8 +575,10 @@ async fn a_fusion_is_rendered_on_the_gpu_from_two_songs() {
     let bytes = std::fs::read(&output).unwrap();
     assert_eq!(bytes.len() as u64, frames * 2 * 4, "stereo f32");
     let peak = bytes
-        .chunks_exact(4)
-        .map(|sample| f32::from_le_bytes(sample.try_into().unwrap()).abs())
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|sample| f32::from_le_bytes(*sample).abs())
         .fold(0.0_f32, f32::max);
     assert!(peak > 0.01 && peak < 4.0, "the clip holds audio: {peak}");
 }
